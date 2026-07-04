@@ -22,6 +22,7 @@ import {
   ChatListKind,
   ChatSummary,
   getChatsInList,
+  loadAllChatsInList,
   loadChatsInList,
   sortChatsByOrder,
   totalUnread,
@@ -65,8 +66,7 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
 
   const refreshArchivePreview = useCallback(async () => {
     try {
-      await loadChatsInList('archive', PAGE_SIZE).catch(() => 'end');
-      const list = await getChatsInList('archive', PAGE_SIZE);
+      const list = await loadAllChatsInList('archive');
       setArchiveChats(list);
     } catch {
       setArchiveChats([]);
@@ -81,23 +81,28 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
     const activeList = listViewRef.current;
     setLoading(prev => prev || loadedCountRef.current === 0);
     try {
-      const target = Math.max(PAGE_SIZE, loadedCountRef.current);
-      if (loadedCountRef.current < target) {
-        const r = await loadChatsInList(
-          activeList,
-          target - loadedCountRef.current,
-        ).catch(() => 'end' as const);
-        if (r === 'end') {
-          setHasMore(false);
+      if (activeList === 'archive') {
+        const list = await loadAllChatsInList('archive');
+        loadedCountRef.current = list.length;
+        setChats(list);
+        setHasMore(false);
+      } else {
+        const target = Math.max(PAGE_SIZE, loadedCountRef.current);
+        if (loadedCountRef.current < target) {
+          const r = await loadChatsInList(
+            activeList,
+            target - loadedCountRef.current,
+          ).catch(() => 'end' as const);
+          if (r === 'end') {
+            setHasMore(false);
+          }
         }
-      }
-      const list = await getChatsInList(activeList, target);
-      loadedCountRef.current = list.length;
-      setChats(list);
-      setError(null);
-      if (activeList === 'main') {
+        const list = await getChatsInList(activeList, target);
+        loadedCountRef.current = list.length;
+        setChats(list);
         await refreshArchivePreview();
       }
+      setError(null);
     } catch (e: any) {
       setError(e?.message ?? String(e));
     } finally {
@@ -121,6 +126,9 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
 
   const loadMore = useCallback(async () => {
     if (inFlightRef.current || loadingMore || !hasMore) {
+      return;
+    }
+    if (listViewRef.current === 'archive') {
       return;
     }
     inFlightRef.current = true;

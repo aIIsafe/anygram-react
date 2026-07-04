@@ -15,12 +15,31 @@ export interface ChatSummary {
 
 const {TdLibModule} = NativeModules;
 
+const LOAD_BATCH = 200;
+const MAX_CHATS = 100000;
+
 export async function loadChatsInList(
   list: ChatListKind,
   limit: number,
 ): Promise<'loaded' | 'end'> {
   const result = await TdLibModule.loadChatsWithList(list, limit);
   return result === 'No more chats to load' ? 'end' : 'loaded';
+}
+
+/** Загружает весь список (main или archive) без лимита страниц. */
+export async function loadAllChatsInList(
+  list: ChatListKind,
+): Promise<ChatSummary[]> {
+  for (;;) {
+    const status = await loadChatsInList(list, LOAD_BATCH).catch(
+      () => 'end' as const,
+    );
+    if (status === 'end') {
+      break;
+    }
+  }
+  const chats = await getChatsInList(list, MAX_CHATS);
+  return sortChatsByOrder(chats, list);
 }
 
 export async function getChatsInList(
