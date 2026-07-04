@@ -6,7 +6,7 @@
 import React, {useEffect, useState} from 'react';
 import {Image, Platform, StyleSheet, Text, View} from 'react-native';
 import TdLib from 'react-native-tdlib';
-import {colors} from '../theme';
+import {useTheme} from '../theme';
 import {useTdUpdate} from '../tdlib';
 
 interface TdFile {
@@ -52,6 +52,7 @@ function pickSize(sizes: PhotoSize[] | undefined): PhotoSize | undefined {
 }
 
 const MessagePhoto: React.FC<Props> = ({photo, caption, maxWidth}) => {
+  const {theme} = useTheme();
   const size = pickSize(photo?.sizes);
   const fileId = size?.photo?.id;
   const [path, setPath] = useState<string | undefined>(filePath(size?.photo));
@@ -92,7 +93,7 @@ const MessagePhoto: React.FC<Props> = ({photo, caption, maxWidth}) => {
       <View
         style={[
           styles.frame,
-          {width: targetW, height: targetH, backgroundColor: colors.surface},
+          {width: targetW, height: targetH, backgroundColor: theme.surface},
         ]}>
         {path ? (
           <Image
@@ -109,14 +110,18 @@ const MessagePhoto: React.FC<Props> = ({photo, caption, maxWidth}) => {
           />
         ) : null}
       </View>
-      {caption ? <Text style={styles.caption}>{caption}</Text> : null}
+      {caption ? (
+        <Text style={[styles.caption, {color: theme.textPrimary}]}>
+          {caption}
+        </Text>
+      ) : null}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   frame: {borderRadius: 12, overflow: 'hidden'},
-  caption: {fontSize: 14, color: colors.textPrimary, marginTop: 6},
+  caption: {fontSize: 14, marginTop: 6},
 });
 
 export default MessagePhoto;

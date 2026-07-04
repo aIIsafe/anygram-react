@@ -22,9 +22,11 @@ import {
 } from 'react-native';
 import TdLib from 'react-native-tdlib';
 import ChatAvatar from '../components/ChatAvatar';
+import LiquidGlass from '../components/LiquidGlass';
 import MessagePhoto from '../components/MessagePhoto';
+import ThemeToggle from '../components/ThemeToggle';
 import TypingDots from '../components/TypingDots';
-import {colors, formatTime} from '../theme';
+import {AppTheme, formatTime, useTheme} from '../theme';
 import {safeJsonParse, useTdUpdate} from '../tdlib';
 import {ChatSummary} from './ChatsScreen';
 
@@ -103,6 +105,8 @@ const VIEW_BATCH_MS = 500;
 const TYPING_TIMEOUT_MS = 5000;
 
 const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
+  const {theme} = useTheme();
+  const styles = useMemo(() => createChatStyles(theme), [theme]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -447,7 +451,7 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
               maxWidth={width * 0.68}
             />
           ) : (
-            renderMessageBody(item.content, styles.bubbleText)
+            renderMessageBody(item.content, styles.bubbleText, theme)
           )}
 
           {reactions.length > 0 && (
@@ -485,7 +489,8 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.container}>
-      <View style={styles.header}>
+      <LiquidGlass intensity="soft" compact style={styles.headerGlass}>
+        <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backBtn}>
           <Text style={styles.backText}>‹</Text>
         </TouchableOpacity>
@@ -498,22 +503,24 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
             {typingUserIds.length > 0 ? (
               <View style={styles.headerTypingRow}>
                 <Text style={[styles.headerSubtitle, styles.headerTypingLabel]}>
-                  typing
+                  печатает
                 </Text>
-                <TypingDots color={colors.primary} />
+                <TypingDots color={theme.primary} />
               </View>
             ) : (
               <Text style={styles.headerSubtitle} numberOfLines={1}>
-                tap for info
+                нажмите для информации
               </Text>
             )}
           </View>
         </TouchableOpacity>
-      </View>
+        <ThemeToggle compact />
+        </View>
+      </LiquidGlass>
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <ActivityIndicator size="large" color={theme.primary} />
         </View>
       ) : (
         <FlatList
@@ -530,7 +537,7 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
           windowSize={7}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={styles.emptyText}>No messages yet</Text>
+              <Text style={styles.emptyText}>Пока нет сообщений</Text>
             </View>
           }
         />
@@ -540,7 +547,7 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
         <View style={styles.replyingBar}>
           <View style={styles.replyingBar_accent} />
           <View style={{flex: 1}}>
-            <Text style={styles.replyingBar_label}>Replying to</Text>
+            <Text style={styles.replyingBar_label}>Ответ на</Text>
             <Text style={styles.replyingBar_preview} numberOfLines={1}>
               {renderContent(replyingTo.content)}
             </Text>
@@ -563,26 +570,28 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
         </View>
       ) : null}
 
-      <View style={styles.inputBar}>
-        <TextInput
-          value={text}
-          onChangeText={onChangeText}
-          placeholder="Message"
-          placeholderTextColor={colors.textTertiary}
-          style={styles.input}
-          multiline
-        />
-        <TouchableOpacity
-          onPress={onSend}
-          disabled={sending || !text.trim()}
-          style={[
-            styles.sendBtn,
-            (sending || !text.trim()) && styles.sendBtnDisabled,
-          ]}
-          activeOpacity={0.8}>
-          <Text style={styles.sendBtnText}>➤</Text>
-        </TouchableOpacity>
-      </View>
+      <LiquidGlass intensity="soft" compact style={styles.inputGlass}>
+        <View style={styles.inputBar}>
+          <TextInput
+            value={text}
+            onChangeText={onChangeText}
+            placeholder="Сообщение"
+            placeholderTextColor={theme.textTertiary}
+            style={styles.input}
+            multiline
+          />
+          <TouchableOpacity
+            onPress={onSend}
+            disabled={sending || !text.trim()}
+            style={[
+              styles.sendBtn,
+              (sending || !text.trim()) && styles.sendBtnDisabled,
+            ]}
+            activeOpacity={0.8}>
+            <Text style={styles.sendBtnText}>➤</Text>
+          </TouchableOpacity>
+        </View>
+      </LiquidGlass>
 
       {/* Action menu (Reply / React) */}
       <Modal
@@ -591,7 +600,8 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
         animationType="fade"
         onRequestClose={() => setActionOn(null)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setActionOn(null)}>
-          <View style={styles.actionSheet}>
+          <LiquidGlass intensity="soft" style={styles.actionSheetGlass}>
+            <View style={styles.actionSheet}>
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={() => {
@@ -600,23 +610,24 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
                 if (m) setReactingOn(m);
               }}>
               <Text style={styles.actionEmoji}>😊</Text>
-              <Text style={styles.actionLabel}>React</Text>
+              <Text style={styles.actionLabel}>Реакция</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={() => actionOn && startReply(actionOn)}>
               <Text style={styles.actionEmoji}>↩︎</Text>
-              <Text style={styles.actionLabel}>Reply</Text>
+              <Text style={styles.actionLabel}>Ответить</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={() => actionOn && askDelete(actionOn)}>
               <Text style={[styles.actionEmoji, styles.actionDeleteEmoji]}>🗑</Text>
               <Text style={[styles.actionLabel, styles.actionDeleteLabel]}>
-                Delete
+                Удалить
               </Text>
             </TouchableOpacity>
-          </View>
+            </View>
+          </LiquidGlass>
         </Pressable>
       </Modal>
 
@@ -627,7 +638,8 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
         animationType="fade"
         onRequestClose={() => setReactingOn(null)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setReactingOn(null)}>
-          <View style={styles.reactionPicker}>
+          <LiquidGlass intensity="soft" style={styles.reactionPickerGlass}>
+            <View style={styles.reactionPicker}>
             {QUICK_REACTIONS.map(emoji => (
               <TouchableOpacity
                 key={emoji}
@@ -638,7 +650,8 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
                 <Text style={styles.reactionPickerEmoji}>{emoji}</Text>
               </TouchableOpacity>
             ))}
-          </View>
+            </View>
+          </LiquidGlass>
         </Pressable>
       </Modal>
 
@@ -666,24 +679,24 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
             </View>
             {info?.description ? (
               <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>About</Text>
+                <Text style={styles.infoLabel}>Описание</Text>
                 <Text style={styles.infoValue}>{info.description}</Text>
               </View>
             ) : null}
             {typeof info?.member_count === 'number' ? (
               <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Members</Text>
+                <Text style={styles.infoLabel}>Участники</Text>
                 <Text style={styles.infoValue}>{info.member_count}</Text>
               </View>
             ) : null}
             <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Chat ID</Text>
+              <Text style={styles.infoLabel}>ID чата</Text>
               <Text style={styles.infoValue}>{String(chat.id)}</Text>
             </View>
             <TouchableOpacity
               style={styles.infoClose}
               onPress={() => setInfoOpen(false)}>
-              <Text style={styles.infoCloseText}>Close</Text>
+              <Text style={styles.infoCloseText}>Закрыть</Text>
             </TouchableOpacity>
           </Pressable>
         </Pressable>
@@ -702,14 +715,25 @@ function sendingState(msg: Message, lastReadOutboxId: number): TickState {
 }
 
 const Ticks: React.FC<{state: TickState}> = ({state}) => {
+  const {theme} = useTheme();
+  const tickStyles = useMemo(
+    () =>
+      StyleSheet.create({
+        ticks: {fontSize: 11, marginLeft: 4, lineHeight: 12, fontWeight: '700'},
+        ticksSent: {color: theme.textTertiary},
+        ticksRead: {color: theme.primary},
+        tickPending: {fontSize: 10, marginLeft: 4, color: theme.textTertiary},
+      }),
+    [theme],
+  );
   if (state === 'pending') {
-    return <Text style={styles.tickPending}>⏳</Text>;
+    return <Text style={tickStyles.tickPending}>⏳</Text>;
   }
   return (
     <Text
       style={[
-        styles.ticks,
-        state === 'read' ? styles.ticksRead : styles.ticksSent,
+        tickStyles.ticks,
+        state === 'read' ? tickStyles.ticksRead : tickStyles.ticksSent,
       ]}>
       {state === 'read' ? '✓✓' : '✓'}
     </Text>
@@ -735,6 +759,7 @@ function describeType(t: any): string {
 function renderFormattedText(
   formatted: {text?: string; entities?: any[]} | undefined,
   baseStyle: TextStyle,
+  theme: AppTheme,
 ): React.ReactNode {
   const text = formatted?.text ?? '';
   const entities = (formatted?.entities ?? [])
@@ -753,7 +778,7 @@ function renderFormattedText(
     }
     const slice = text.substring(e.offset, e.offset + e.length);
     const t = e.type?.['@type'] as string | undefined;
-    const style = entityStyle(t);
+    const style = entityStyle(t, theme);
     const onPress = entityPressHandler(e, slice);
     nodes.push(
       <Text
@@ -770,19 +795,19 @@ function renderFormattedText(
   return <Text style={baseStyle}>{nodes}</Text>;
 }
 
-function entityStyle(type: string | undefined): TextStyle | undefined {
+function entityStyle(type: string | undefined, theme: AppTheme): TextStyle | undefined {
   switch (type) {
     case 'textEntityTypeMention':
     case 'textEntityTypeMentionName':
     case 'textEntityTypeHashtag':
     case 'textEntityTypeCashtag':
     case 'textEntityTypeBotCommand':
-      return {color: colors.primary};
+      return {color: theme.primary};
     case 'textEntityTypeUrl':
     case 'textEntityTypeTextUrl':
     case 'textEntityTypeEmailAddress':
     case 'textEntityTypePhoneNumber':
-      return {color: colors.primary, textDecorationLine: 'underline'};
+      return {color: theme.primary, textDecorationLine: 'underline'};
     case 'textEntityTypeBold':
       return {fontWeight: '700'};
     case 'textEntityTypeItalic':
@@ -796,7 +821,7 @@ function entityStyle(type: string | undefined): TextStyle | undefined {
     case 'textEntityTypePreCode':
       return {
         fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-        backgroundColor: colors.surface,
+        backgroundColor: theme.surface,
       };
     default:
       return undefined;
@@ -828,9 +853,10 @@ function entityPressHandler(
 function renderMessageBody(
   content: any,
   baseStyle: TextStyle,
+  theme: AppTheme,
 ): React.ReactNode {
   if (content?.['@type'] === 'messageText') {
-    return renderFormattedText(content.text, baseStyle);
+    return renderFormattedText(content.text, baseStyle, theme);
   }
   return <Text style={baseStyle}>{renderContent(content)}</Text>;
 }
@@ -892,31 +918,33 @@ function renderContent(content: any): string {
   }
 }
 
-const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: colors.surface},
+function createChatStyles(theme: AppTheme) {
+  return StyleSheet.create({
+  container: {flex: 1, backgroundColor: theme.backgroundAlt},
+  headerGlass: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.glassBorder,
+  },
   header: {
     paddingTop: 10,
     paddingBottom: 10,
     paddingHorizontal: 12,
-    backgroundColor: colors.background,
     flexDirection: 'row',
     alignItems: 'center',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.divider,
   },
   backBtn: {paddingHorizontal: 8, paddingVertical: 4, marginRight: 4},
-  backText: {fontSize: 32, color: colors.primary, lineHeight: 32, marginTop: -4},
+  backText: {fontSize: 32, color: theme.primary, lineHeight: 32, marginTop: -4},
   headerCenter: {flex: 1, flexDirection: 'row', alignItems: 'center'},
   headerBody: {flex: 1, marginLeft: 10},
-  headerTitle: {fontSize: 16, fontWeight: '600', color: colors.textPrimary},
-  headerSubtitle: {fontSize: 12, color: colors.textSecondary, marginTop: 2},
+  headerTitle: {fontSize: 16, fontWeight: '600', color: theme.textPrimary},
+  headerSubtitle: {fontSize: 12, color: theme.textSecondary, marginTop: 2},
   headerTypingRow: {flexDirection: 'row', alignItems: 'center', marginTop: 4},
-  headerTypingLabel: {color: colors.primary, marginRight: 6},
+  headerTypingLabel: {color: theme.primary, marginRight: 6},
 
   center: {flex: 1, alignItems: 'center', justifyContent: 'center'},
   listContent: {paddingHorizontal: 10, paddingVertical: 10},
   empty: {paddingTop: 80, alignItems: 'center'},
-  emptyText: {color: colors.textSecondary, fontSize: 14},
+  emptyText: {color: theme.textSecondary, fontSize: 14},
 
   bubbleRow: {marginVertical: 2, flexDirection: 'row'},
   bubbleRowOwn: {justifyContent: 'flex-end'},
@@ -926,27 +954,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 14,
-    shadowColor: colors.bubbleShadow,
+    shadowColor: theme.bubbleShadow,
     shadowOpacity: 0.5,
     shadowRadius: 1,
     shadowOffset: {width: 0, height: 1},
     elevation: 1,
   },
-  bubbleOwn: {backgroundColor: colors.bubbleOwn, borderBottomRightRadius: 4},
-  bubbleOther: {backgroundColor: colors.bubbleOther, borderBottomLeftRadius: 4},
+  bubbleOwn: {backgroundColor: theme.bubbleOwn, borderBottomRightRadius: 4},
+  bubbleOther: {backgroundColor: theme.bubbleOther, borderBottomLeftRadius: 4},
   bubblePhoto: {padding: 4},
-  bubbleText: {fontSize: 15, color: colors.textPrimary, lineHeight: 20},
+  bubbleText: {fontSize: 15, color: theme.textPrimary, lineHeight: 20},
   bubbleMeta: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-end',
     marginTop: 2,
   },
-  bubbleTime: {fontSize: 10, color: colors.textTertiary},
+  bubbleTime: {fontSize: 10, color: theme.textTertiary},
   ticks: {fontSize: 11, marginLeft: 4, lineHeight: 12, fontWeight: '700'},
-  ticksSent: {color: colors.textTertiary},
-  ticksRead: {color: colors.primary},
-  tickPending: {fontSize: 10, marginLeft: 4, color: colors.textTertiary},
+  ticksSent: {color: theme.textTertiary},
+  ticksRead: {color: theme.primary},
+  tickPending: {fontSize: 10, marginLeft: 4, color: theme.textTertiary},
 
   replyQuote: {
     flexDirection: 'row',
@@ -957,8 +985,8 @@ const styles = StyleSheet.create({
     paddingRight: 8,
     paddingVertical: 4,
   },
-  replyBar: {width: 3, backgroundColor: colors.primary, marginRight: 6, alignSelf: 'stretch'},
-  replyText: {flex: 1, fontSize: 12, color: colors.textSecondary},
+  replyBar: {width: 3, backgroundColor: theme.primary, marginRight: 6, alignSelf: 'stretch'},
+  replyText: {flex: 1, fontSize: 12, color: theme.textSecondary},
 
   reactionsRow: {flexDirection: 'row', flexWrap: 'wrap', marginTop: 6},
   reactionPill: {
@@ -976,10 +1004,10 @@ const styles = StyleSheet.create({
   reactionCount: {
     fontSize: 11,
     marginLeft: 3,
-    color: colors.textSecondary,
+    color: theme.textSecondary,
     fontWeight: '600',
   },
-  reactionCountActive: {color: colors.primary},
+  reactionCountActive: {color: theme.primary},
 
   replyingBar: {
     flexDirection: 'row',
@@ -987,28 +1015,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.divider,
-    backgroundColor: colors.background,
+    borderTopColor: theme.divider,
+    backgroundColor: theme.background,
   },
   replyingBar_accent: {
     width: 3,
     height: 32,
-    backgroundColor: colors.primary,
+    backgroundColor: theme.primary,
     borderRadius: 2,
     marginRight: 8,
   },
-  replyingBar_label: {fontSize: 11, color: colors.primary, fontWeight: '600'},
-  replyingBar_preview: {fontSize: 13, color: colors.textSecondary},
+  replyingBar_label: {fontSize: 11, color: theme.primary, fontWeight: '600'},
+  replyingBar_preview: {fontSize: 13, color: theme.textSecondary},
   replyingBar_close: {paddingHorizontal: 8, paddingVertical: 4},
-  replyingBar_closeText: {fontSize: 18, color: colors.textSecondary},
+  replyingBar_closeText: {fontSize: 18, color: theme.textSecondary},
 
+  inputGlass: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: theme.glassBorder,
+  },
   inputBar: {
     flexDirection: 'row',
-    padding: 8,
-    paddingBottom: 8,
-    backgroundColor: colors.background,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.divider,
+    padding: 10,
+    paddingBottom: 10,
     alignItems: 'flex-end',
   },
   entitiesBar: {
@@ -1017,10 +1046,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 6,
     paddingBottom: 2,
-    backgroundColor: colors.background,
+    backgroundColor: theme.background,
   },
   entityChip: {
-    backgroundColor: colors.surface,
+    backgroundColor: theme.surface,
     borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -1029,16 +1058,18 @@ const styles = StyleSheet.create({
   },
   entityChipText: {
     fontSize: 11,
-    color: colors.textSecondary,
+    color: theme.textSecondary,
   },
   input: {
     flex: 1,
-    backgroundColor: colors.surface,
+    backgroundColor: theme.mode === 'dark' ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.65)',
+    borderWidth: 1,
+    borderColor: theme.glassBorder,
     borderRadius: 22,
     paddingHorizontal: 16,
     paddingVertical: Platform.OS === 'ios' ? 10 : 8,
     fontSize: 15,
-    color: colors.textPrimary,
+    color: theme.textPrimary,
     maxHeight: 120,
     minHeight: 40,
   },
@@ -1046,12 +1077,12 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: colors.primary,
+    backgroundColor: theme.primary,
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,
   },
-  sendBtnDisabled: {backgroundColor: colors.divider},
+  sendBtnDisabled: {backgroundColor: theme.divider},
   sendBtnText: {color: 'white', fontSize: 18, marginLeft: 2},
 
   modalBackdrop: {
@@ -1060,33 +1091,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  actionSheetGlass: {borderRadius: 20, overflow: 'hidden'},
   actionSheet: {
     flexDirection: 'row',
-    backgroundColor: colors.background,
-    borderRadius: 16,
-    padding: 6,
-    shadowColor: 'rgba(0,0,0,0.3)',
-    shadowOffset: {width: 0, height: 4},
-    shadowRadius: 12,
-    shadowOpacity: 1,
-    elevation: 6,
+    padding: 4,
   },
   actionBtn: {alignItems: 'center', justifyContent: 'center', padding: 14, minWidth: 80},
   actionEmoji: {fontSize: 22},
-  actionLabel: {fontSize: 12, color: colors.textSecondary, marginTop: 4, fontWeight: '600'},
+  actionLabel: {fontSize: 12, color: theme.textSecondary, marginTop: 4, fontWeight: '600'},
   actionDeleteEmoji: {fontSize: 20},
-  actionDeleteLabel: {color: '#d33'},
+  actionDeleteLabel: {color: theme.danger},
 
+  reactionPickerGlass: {borderRadius: 24, overflow: 'hidden'},
   reactionPicker: {
     flexDirection: 'row',
-    backgroundColor: colors.background,
-    borderRadius: 30,
     padding: 8,
-    shadowColor: 'rgba(0,0,0,0.3)',
-    shadowOffset: {width: 0, height: 4},
-    shadowRadius: 12,
-    shadowOpacity: 1,
-    elevation: 8,
   },
   reactionPickerBtn: {
     width: 42,
@@ -1097,7 +1116,9 @@ const styles = StyleSheet.create({
   reactionPickerEmoji: {fontSize: 28},
 
   infoSheet: {
-    backgroundColor: colors.background,
+    backgroundColor: theme.glass,
+    borderWidth: 1,
+    borderColor: theme.glassBorder,
     borderRadius: 20,
     padding: 20,
     width: '84%',
@@ -1108,26 +1129,27 @@ const styles = StyleSheet.create({
   infoTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: colors.textPrimary,
+    color: theme.textPrimary,
     marginTop: 10,
     textAlign: 'center',
   },
-  infoType: {fontSize: 13, color: colors.textSecondary, marginTop: 2},
+  infoType: {fontSize: 13, color: theme.textSecondary, marginTop: 2},
   infoRow: {
     paddingVertical: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.divider,
+    borderTopColor: theme.divider,
   },
-  infoLabel: {fontSize: 12, color: colors.textSecondary, marginBottom: 2},
-  infoValue: {fontSize: 15, color: colors.textPrimary},
+  infoLabel: {fontSize: 12, color: theme.textSecondary, marginBottom: 2},
+  infoValue: {fontSize: 15, color: theme.textPrimary},
   infoClose: {
     marginTop: 18,
-    backgroundColor: colors.primary,
+    backgroundColor: theme.primary,
     borderRadius: 10,
     paddingVertical: 12,
     alignItems: 'center',
   },
   infoCloseText: {color: 'white', fontWeight: '600', fontSize: 15},
-});
+  });
+}
 
 export default ChatScreen;

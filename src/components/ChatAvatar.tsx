@@ -6,7 +6,7 @@
 import React, {useEffect, useState} from 'react';
 import {Image, Platform, StyleSheet, Text, View} from 'react-native';
 import TdLib from 'react-native-tdlib';
-import {avatarColor, initialsOf} from '../theme';
+import {avatarColor, initialsOf, useTheme} from '../theme';
 import {safeJsonParse, useTdUpdate} from '../tdlib';
 
 interface Props {
@@ -35,6 +35,7 @@ function filePath(file: TdFile | undefined | null): string | undefined {
 }
 
 const ChatAvatar: React.FC<Props> = ({id, title, photo, size}) => {
+  const {theme} = useTheme();
   const smallFile: TdFile | undefined = photo?.small ?? photo?.minithumbnail;
   const [path, setPath] = useState<string | undefined>(filePath(smallFile));
   const fileId = smallFile?.id;
@@ -67,7 +68,16 @@ const ChatAvatar: React.FC<Props> = ({id, title, photo, size}) => {
 
   const dim = {width: size, height: size, borderRadius: size / 2};
   return (
-    <View style={[styles.container, dim, {backgroundColor: avatarColor(id)}]}>
+    <View
+      style={[
+        styles.container,
+        dim,
+        {
+          backgroundColor: avatarColor(id),
+          borderWidth: 1,
+          borderColor: theme.glassBorder,
+        },
+      ]}>
       {path ? (
         <Image source={{uri: path}} style={[styles.image, dim]} />
       ) : (

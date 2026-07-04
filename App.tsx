@@ -4,22 +4,27 @@ import TdLib from 'react-native-tdlib';
 import AuthScreen from './src/screens/AuthScreen';
 import ChatsScreen, {ChatSummary} from './src/screens/ChatsScreen';
 import ChatScreen from './src/screens/ChatScreen';
-import {colors} from './src/theme';
+import {ThemeProvider, useTheme} from './src/theme';
 import {safeJsonParse, useAuthState} from './src/tdlib';
 
 type Route = {name: 'chats'} | {name: 'chat'; chat: ChatSummary};
 
-const App: React.FC = () => {
+const AppShell: React.FC = () => {
+  const {theme} = useTheme();
   const auth = useAuthState();
   const [route, setRoute] = useState<Route>({name: 'chats'});
   const [meId, setMeId] = useState<number | null>(null);
 
   useEffect(() => {
-    if (auth.state !== 'ready') return;
+    if (auth.state !== 'ready') {
+      return;
+    }
     TdLib.getProfile()
       .then(r => {
         const me = safeJsonParse<{id: number}>(r);
-        if (me?.id) setMeId(me.id);
+        if (me?.id) {
+          setMeId(me.id);
+        }
       })
       .catch(() => {});
   }, [auth.state]);
@@ -48,16 +53,28 @@ const App: React.FC = () => {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
-      <View style={styles.container}>{body}</View>
+    <SafeAreaView
+      style={[styles.safe, {backgroundColor: theme.background}]}>
+      <StatusBar
+        barStyle={theme.statusBar}
+        backgroundColor={theme.background}
+      />
+      <View style={[styles.container, {backgroundColor: theme.background}]}>
+        {body}
+      </View>
     </SafeAreaView>
   );
 };
 
+const App: React.FC = () => (
+  <ThemeProvider>
+    <AppShell />
+  </ThemeProvider>
+);
+
 const styles = StyleSheet.create({
-  safe: {flex: 1, backgroundColor: colors.background},
-  container: {flex: 1, backgroundColor: colors.background},
+  safe: {flex: 1},
+  container: {flex: 1},
 });
 
 export default App;

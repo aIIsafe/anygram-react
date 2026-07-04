@@ -1,13 +1,14 @@
 /**
- * Auth wizard — sequential Telegram-like login flow.
- * Step is driven by the current TDLib authorization state.
+ * Минималистичный экран входа с liquid glass и анимациями.
  */
 
-import React, {useCallback, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   ActivityIndicator,
+  Animated,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -15,7 +16,11 @@ import {
   View,
 } from 'react-native';
 import TdLib from 'react-native-tdlib';
-import {colors} from '../theme';
+import AnimatedLogo from '../components/AnimatedLogo';
+import AuthBackground from '../components/AuthBackground';
+import LiquidGlass from '../components/LiquidGlass';
+import ThemeToggle from '../components/ThemeToggle';
+import {AppTheme, useTheme} from '../theme';
 import {AuthStateInfo} from '../tdlib';
 
 interface Props {
@@ -23,12 +28,31 @@ interface Props {
 }
 
 const AuthScreen: React.FC<Props> = ({info}) => {
+  const {theme} = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+
   const [countryCode, setCountryCode] = useState('+7');
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const fade = useRef(new Animated.Value(1)).current;
+  const prevState = useRef(info.state);
+
+  useEffect(() => {
+    if (prevState.current === info.state) {
+      return;
+    }
+    prevState.current = info.state;
+    fade.setValue(0);
+    Animated.timing(fade, {
+      toValue: 1,
+      duration: 320,
+      useNativeDriver: true,
+    }).start();
+  }, [info.state, fade]);
 
   const sendPhone = useCallback(async () => {
     setError(null);
@@ -87,164 +111,241 @@ const AuthScreen: React.FC<Props> = ({info}) => {
   ) {
     const label =
       info.state === 'closing' || info.state === 'closed'
-        ? 'Signing out…'
+        ? 'Выход…'
         : info.state === 'wait_encryption'
-        ? 'Securing local database…'
-        : 'Connecting via AnyGram…';
+        ? 'Шифрование базы…'
+        : 'Подключение к Telegram…';
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loading}>{label}</Text>
-      </View>
+      <AuthBackground>
+        <View style={styles.topBar}>
+          <ThemeToggle compact />
+        </View>
+        <View style={styles.center}>
+          <AnimatedLogo />
+          <ActivityIndicator size="large" color={theme.primary} />
+          <Text style={styles.loading}>{label}</Text>
+        </View>
+      </AuthBackground>
     );
   }
 
-  const codeHint = codeTypeLabel(info.codeType);
+  const titles: Record<string, string> = {
+    wait_phone: 'Номер телефона',
+    wait_code: `Код ${codeTypeLabel(info.codeType)}`,
+    wait_password: 'Облачный пароль',
+    wait_registration: 'Регистрация',
+    wait_email: 'Подтверждение email',
+  };
+
+  const subtitles: Record<string, string> = {
+    wait_phone: 'Введите номер — мы отправим код подтверждения.',
+    wait_code: info.phoneNumber
+      ? `Код отправлен на +${info.phoneNumber.replace(/^\+/, '')}`
+      : 'Введите код из SMS или Telegram',
+    wait_password: info.passwordHint
+      ? `Подсказка: ${info.passwordHint}`
+      : 'Аккаунт защищён двухфакторной аутентификацией',
+    wait_registration: 'Номер не зарегистрирован. Создайте аккаунт в Telegram.',
+    wait_email: 'Введите код из письма',
+  };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={styles.container}>
-      <View style={styles.logoBlock}>
-        <View style={styles.logo}>
-          <Text style={styles.logoText}>AG</Text>
-        </View>
-        <Text style={styles.title}>
-          {info.state === 'wait_phone' && 'Your phone number'}
-          {info.state === 'wait_code' && `Enter ${codeHint}`}
-          {info.state === 'wait_password' && 'Two-factor authentication'}
-          {info.state === 'wait_registration' && 'Complete registration'}
-          {info.state === 'wait_email' && 'Email confirmation'}
-        </Text>
-        <Text style={styles.subtitle}>
-          {info.state === 'wait_phone' &&
-            'Please confirm your country code and enter your phone number.'}
-          {info.state === 'wait_code' &&
-            (info.phoneNumber
-              ? `We sent a code to +${info.phoneNumber.replace(/^\+/, '')}.`
-              : 'Enter the code we sent you.')}
-          {info.state === 'wait_password' &&
-            (info.passwordHint
-              ? `Hint: ${info.passwordHint}`
-              : 'Your account is protected with an additional password.')}
-          {info.state === 'wait_registration' &&
-            'This phone is not registered. Please register via the Telegram app first.'}
-          {info.state === 'wait_email' && 'Enter the code sent to your email.'}
-        </Text>
-      </View>
-
-      {info.state === 'wait_phone' && (
-        <View style={styles.form}>
-          <View style={styles.phoneRow}>
-            <TextInput
-              value={countryCode}
-              onChangeText={setCountryCode}
-              placeholder="+7"
-              placeholderTextColor={colors.textTertiary}
-              keyboardType="phone-pad"
-              style={[styles.input, styles.country]}
-            />
-            <TextInput
-              value={phone}
-              onChangeText={setPhone}
-              placeholder="Phone number"
-              placeholderTextColor={colors.textTertiary}
-              keyboardType="phone-pad"
-              style={[styles.input, styles.phone]}
-              autoFocus
-            />
+    <AuthBackground>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.flex}>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}>
+          <View style={styles.topBar}>
+            <View>
+              <Text style={styles.brand}>AnyGram</Text>
+              <Text style={styles.brandSub}>минималистичный клиент</Text>
+            </View>
+            <ThemeToggle compact />
           </View>
-          <Button label="Next" onPress={sendPhone} disabled={busy || !phone} />
-        </View>
-      )}
 
-      {info.state === 'wait_code' && (
-        <View style={styles.form}>
-          <TextInput
-            value={code}
-            onChangeText={setCode}
-            placeholder="Code"
-            placeholderTextColor={colors.textTertiary}
-            keyboardType="number-pad"
-            style={[styles.input, styles.inputSpaced]}
-            autoFocus
-          />
-          <Button
-            label="Verify"
-            onPress={sendCode}
-            disabled={busy || (info.codeLength ? code.length < info.codeLength : code.length < 4)}
-          />
-          <TextButton label="Use a different phone" onPress={startOver} disabled={busy} />
-        </View>
-      )}
+          <AnimatedLogo />
 
-      {info.state === 'wait_password' && (
-        <View style={styles.form}>
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Password"
-            placeholderTextColor={colors.textTertiary}
-            secureTextEntry
-            style={[styles.input, styles.inputSpaced]}
-            autoFocus
-          />
-          <Button
-            label="Continue"
-            onPress={sendPassword}
-            disabled={busy || !password}
-          />
-          <TextButton label="Log out and restart" onPress={startOver} disabled={busy} />
-        </View>
-      )}
+          <Animated.View style={{opacity: fade, width: '100%'}}>
+            <LiquidGlass>
+              <Text style={styles.stepIcon}>{stepIcon(info.state)}</Text>
+              <Text style={styles.title}>{titles[info.state] ?? 'Вход'}</Text>
+              <Text style={styles.subtitle}>
+                {subtitles[info.state] ?? ''}
+              </Text>
 
-      {info.state === 'wait_registration' && (
-        <View style={styles.form}>
-          <TextButton label="Log out and try a different phone" onPress={startOver} disabled={busy} />
-        </View>
-      )}
+              {info.state === 'wait_phone' && (
+                <View style={styles.form}>
+                  <View style={styles.phoneRow}>
+                    <TextInput
+                      value={countryCode}
+                      onChangeText={setCountryCode}
+                      placeholder="+7"
+                      placeholderTextColor={theme.textTertiary}
+                      keyboardType="phone-pad"
+                      style={[styles.input, styles.country]}
+                    />
+                    <TextInput
+                      value={phone}
+                      onChangeText={setPhone}
+                      placeholder="Номер телефона"
+                      placeholderTextColor={theme.textTertiary}
+                      keyboardType="phone-pad"
+                      style={[styles.input, styles.phone]}
+                      autoFocus
+                    />
+                  </View>
+                  <PrimaryButton
+                    label="Продолжить"
+                    onPress={sendPhone}
+                    disabled={busy || !phone}
+                    theme={theme}
+                  />
+                </View>
+              )}
 
-      {error && <Text style={styles.error}>{error}</Text>}
-      {busy && <ActivityIndicator color={colors.primary} style={styles.spinner} />}
-    </KeyboardAvoidingView>
+              {info.state === 'wait_code' && (
+                <View style={styles.form}>
+                  <TextInput
+                    value={code}
+                    onChangeText={setCode}
+                    placeholder="• • • • •"
+                    placeholderTextColor={theme.textTertiary}
+                    keyboardType="number-pad"
+                    style={[styles.input, styles.codeInput]}
+                    autoFocus
+                  />
+                  <PrimaryButton
+                    label="Подтвердить"
+                    onPress={sendCode}
+                    disabled={
+                      busy ||
+                      (info.codeLength
+                        ? code.length < info.codeLength
+                        : code.length < 4)
+                    }
+                    theme={theme}
+                  />
+                  <TextButton
+                    label="Другой номер"
+                    onPress={startOver}
+                    disabled={busy}
+                    theme={theme}
+                  />
+                </View>
+              )}
+
+              {info.state === 'wait_password' && (
+                <View style={styles.form}>
+                  <TextInput
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="Пароль"
+                    placeholderTextColor={theme.textTertiary}
+                    secureTextEntry
+                    style={styles.input}
+                    autoFocus
+                  />
+                  <PrimaryButton
+                    label="Войти"
+                    onPress={sendPassword}
+                    disabled={busy || !password}
+                    theme={theme}
+                  />
+                  <TextButton
+                    label="Начать заново"
+                    onPress={startOver}
+                    disabled={busy}
+                    theme={theme}
+                  />
+                </View>
+              )}
+
+              {info.state === 'wait_registration' && (
+                <TextButton
+                  label="Попробовать другой номер"
+                  onPress={startOver}
+                  disabled={busy}
+                  theme={theme}
+                />
+              )}
+
+              {error && <Text style={styles.error}>{error}</Text>}
+              {busy && (
+                <ActivityIndicator
+                  color={theme.primary}
+                  style={styles.spinner}
+                />
+              )}
+            </LiquidGlass>
+          </Animated.View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </AuthBackground>
   );
 };
+
+function stepIcon(state: string): string {
+  switch (state) {
+    case 'wait_phone':
+      return '📱';
+    case 'wait_code':
+      return '✉️';
+    case 'wait_password':
+      return '🔐';
+    case 'wait_registration':
+      return '👤';
+    case 'wait_email':
+      return '📧';
+    default:
+      return '✨';
+  }
+}
 
 function codeTypeLabel(type: string | undefined): string {
   switch (type) {
     case 'authenticationCodeTypeSms':
     case 'authenticationCodeTypeSmsWord':
     case 'authenticationCodeTypeSmsPhrase':
-      return 'SMS code';
+      return 'из SMS';
     case 'authenticationCodeTypeCall':
-      return 'call code';
-    case 'authenticationCodeTypeFlashCall':
-      return 'flash call code';
-    case 'authenticationCodeTypeMissedCall':
-      return 'missed call code';
+      return 'звонка';
     case 'authenticationCodeTypeTelegramMessage':
-      return 'Telegram code';
-    case 'authenticationCodeTypeFragment':
-      return 'Fragment code';
-    case 'authenticationCodeTypeFirebaseAndroid':
-    case 'authenticationCodeTypeFirebaseIos':
-      return 'Firebase code';
+      return 'Telegram';
     default:
-      return 'code';
+      return '';
   }
 }
 
-const Button: React.FC<{
+const PrimaryButton: React.FC<{
   label: string;
   onPress: () => void;
   disabled?: boolean;
-}> = ({label, onPress, disabled}) => (
+  theme: AppTheme;
+}> = ({label, onPress, disabled, theme}) => (
   <TouchableOpacity
     onPress={onPress}
     disabled={disabled}
-    style={[styles.button, disabled && styles.buttonDisabled]}
-    activeOpacity={0.8}>
-    <Text style={styles.buttonText}>{label}</Text>
+    activeOpacity={0.85}
+    style={[
+      {
+        backgroundColor: disabled ? theme.divider : theme.primary,
+        borderRadius: 16,
+        paddingVertical: 15,
+        alignItems: 'center',
+        marginTop: 12,
+        shadowColor: theme.primary,
+        shadowOffset: {width: 0, height: 6},
+        shadowOpacity: disabled ? 0 : 0.35,
+        shadowRadius: 12,
+        elevation: disabled ? 0 : 4,
+      },
+    ]}>
+    <Text style={{color: theme.textOnPrimary, fontSize: 16, fontWeight: '600'}}>
+      {label}
+    </Text>
   </TouchableOpacity>
 );
 
@@ -252,86 +353,112 @@ const TextButton: React.FC<{
   label: string;
   onPress: () => void;
   disabled?: boolean;
-}> = ({label, onPress, disabled}) => (
+  theme: AppTheme;
+}> = ({label, onPress, disabled, theme}) => (
   <TouchableOpacity
     onPress={onPress}
     disabled={disabled}
-    style={styles.textBtn}
-    activeOpacity={0.5}>
-    <Text style={[styles.textBtnLabel, disabled && styles.textBtnDisabled]}>
+    style={{alignItems: 'center', paddingVertical: 14, marginTop: 4}}
+    activeOpacity={0.6}>
+    <Text
+      style={{
+        color: disabled ? theme.textTertiary : theme.primary,
+        fontSize: 14,
+        fontWeight: '500',
+      }}>
       {label}
     </Text>
   </TouchableOpacity>
 );
 
-const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: colors.background, paddingHorizontal: 20},
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.background,
-  },
-  loading: {marginTop: 14, color: colors.textSecondary, fontSize: 14},
-  logoBlock: {alignItems: 'center', marginTop: 24, marginBottom: 40},
-  logo: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  logoText: {color: 'white', fontSize: 34, fontWeight: '700'},
-  title: {
-    fontSize: 22,
-    fontWeight: '600',
-    color: colors.textPrimary,
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    paddingHorizontal: 12,
-    lineHeight: 20,
-  },
-  form: {},
-  phoneRow: {flexDirection: 'row', marginBottom: 14},
-  country: {width: 80, textAlign: 'center', marginRight: 10},
-  phone: {flex: 1},
-  input: {
-    borderWidth: 1,
-    borderColor: colors.divider,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: colors.textPrimary,
-    backgroundColor: colors.background,
-  },
-  inputSpaced: {marginBottom: 14},
-  button: {
-    backgroundColor: colors.primary,
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  buttonDisabled: {backgroundColor: colors.divider},
-  buttonText: {color: 'white', fontSize: 16, fontWeight: '600'},
-  textBtn: {alignItems: 'center', paddingVertical: 14, marginTop: 8},
-  textBtnLabel: {color: colors.primary, fontSize: 14, fontWeight: '500'},
-  textBtnDisabled: {color: colors.textTertiary},
-  error: {
-    marginTop: 16,
-    color: colors.danger,
-    textAlign: 'center',
-    fontSize: 13,
-  },
-  spinner: {marginTop: 16},
-});
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+    flex: {flex: 1},
+    scroll: {
+      flexGrow: 1,
+      paddingHorizontal: 22,
+      paddingBottom: 40,
+      alignItems: 'center',
+    },
+    topBar: {
+      width: '100%',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      marginTop: 8,
+      marginBottom: 8,
+    },
+    brand: {
+      fontSize: 22,
+      fontWeight: '700',
+      color: theme.textPrimary,
+      letterSpacing: -0.5,
+    },
+    brandSub: {
+      fontSize: 12,
+      color: theme.textTertiary,
+      marginTop: 2,
+    },
+    center: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 24,
+    },
+    loading: {
+      marginTop: 16,
+      color: theme.textSecondary,
+      fontSize: 15,
+      fontWeight: '500',
+    },
+    stepIcon: {
+      fontSize: 36,
+      textAlign: 'center',
+      marginBottom: 12,
+    },
+    title: {
+      fontSize: 24,
+      fontWeight: '700',
+      color: theme.textPrimary,
+      textAlign: 'center',
+      marginBottom: 8,
+      letterSpacing: -0.3,
+    },
+    subtitle: {
+      fontSize: 15,
+      color: theme.textSecondary,
+      textAlign: 'center',
+      lineHeight: 22,
+      marginBottom: 4,
+    },
+    form: {marginTop: 8},
+    phoneRow: {flexDirection: 'row', marginBottom: 4},
+    country: {width: 76, textAlign: 'center', marginRight: 10},
+    phone: {flex: 1},
+    input: {
+      borderWidth: 1,
+      borderColor: theme.glassBorder,
+      borderRadius: 16,
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      fontSize: 17,
+      color: theme.textPrimary,
+      backgroundColor: theme.mode === 'dark' ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.5)',
+    },
+    codeInput: {
+      textAlign: 'center',
+      letterSpacing: 8,
+      fontSize: 22,
+      fontWeight: '600',
+    },
+    error: {
+      marginTop: 14,
+      color: theme.danger,
+      textAlign: 'center',
+      fontSize: 13,
+    },
+    spinner: {marginTop: 12},
+  });
+}
 
 export default AuthScreen;

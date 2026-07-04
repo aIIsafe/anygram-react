@@ -16,7 +16,9 @@ import {
 } from 'react-native';
 import TdLib from 'react-native-tdlib';
 import ChatAvatar from '../components/ChatAvatar';
-import {colors, formatTime} from '../theme';
+import LiquidGlass from '../components/LiquidGlass';
+import ThemeToggle from '../components/ThemeToggle';
+import {AppTheme, formatTime, useTheme} from '../theme';
 import {
   archiveChat,
   ChatListKind,
@@ -40,6 +42,8 @@ const PAGE_SIZE = 25;
 const REFRESH_DEBOUNCE_MS = 400;
 
 const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
+  const {theme} = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const [listView, setListView] = useState<ChatListKind>('main');
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [archiveChats, setArchiveChats] = useState<ChatSummary[]>([]);
@@ -356,14 +360,15 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <LiquidGlass intensity="soft" compact style={styles.headerGlass}>
+        <View style={styles.header}>
         {searchOpen ? (
           <View style={styles.searchRow}>
             <TextInput
               value={query}
               onChangeText={setQuery}
               placeholder="Поиск…"
-              placeholderTextColor={colors.textTertiary}
+              placeholderTextColor={theme.textTertiary}
               style={styles.searchInput}
               autoFocus
             />
@@ -387,6 +392,7 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
               {listView === 'archive' ? 'Архив' : 'Чаты'}
             </Text>
             <View style={styles.headerActions}>
+              <ThemeToggle compact />
               {listView === 'main' && (
                 <TouchableOpacity
                   onPress={() => setSearchOpen(true)}
@@ -404,11 +410,12 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
             </View>
           </>
         )}
-      </View>
+        </View>
+      </LiquidGlass>
 
       {loading && chats.length === 0 ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <ActivityIndicator size="large" color={theme.primary} />
         </View>
       ) : (
         <FlatList
@@ -434,14 +441,14 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
               <RefreshControl
                 refreshing={loading}
                 onRefresh={refresh}
-                tintColor={colors.primary}
+                tintColor={theme.primary}
               />
             )
           }
           ListFooterComponent={
             !searchResults && loadingMore ? (
               <View style={styles.footer}>
-                <ActivityIndicator color={colors.primary} />
+                <ActivityIndicator color={theme.primary} />
               </View>
             ) : !searchResults && !hasMore && chats.length > 0 ? (
               <Text style={styles.footerEnd}>· конец ·</Text>
@@ -507,14 +514,17 @@ function extractPreview(message: any): string {
   }
 }
 
-const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: colors.background},
+function createStyles(theme: AppTheme) {
+  return StyleSheet.create({
+  container: {flex: 1, backgroundColor: theme.background},
+  headerGlass: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: theme.glassBorder,
+  },
   header: {
     paddingTop: 12,
     paddingHorizontal: 16,
     paddingBottom: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.divider,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -523,40 +533,45 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 24,
     fontWeight: '700',
-    color: colors.textPrimary,
+    color: theme.textPrimary,
   },
   backBtn: {marginRight: 8, paddingVertical: 4},
-  backText: {color: colors.primary, fontSize: 17, fontWeight: '500'},
+  backText: {color: theme.primary, fontSize: 17, fontWeight: '500'},
   headerActions: {flexDirection: 'row', alignItems: 'center'},
   headerAction: {paddingHorizontal: 8, paddingVertical: 6, marginLeft: 4},
-  headerActionText: {color: colors.primary, fontSize: 15, fontWeight: '500'},
+  headerActionText: {color: theme.primary, fontSize: 15, fontWeight: '500'},
   searchRow: {flex: 1, flexDirection: 'row', alignItems: 'center'},
   searchInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: colors.divider,
+    borderColor: theme.divider,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 8,
     fontSize: 15,
-    color: colors.textPrimary,
-    backgroundColor: colors.surface,
+    color: theme.textPrimary,
+    backgroundColor: theme.surface,
   },
   searchCancel: {paddingHorizontal: 10, paddingVertical: 8},
-  searchCancelText: {color: colors.primary, fontSize: 14, fontWeight: '600'},
+  searchCancelText: {color: theme.primary, fontSize: 14, fontWeight: '600'},
   center: {flex: 1, alignItems: 'center', justifyContent: 'center'},
   archiveRow: {
     flexDirection: 'row',
     paddingHorizontal: 14,
     paddingVertical: 12,
     alignItems: 'center',
-    backgroundColor: colors.surface,
+    backgroundColor: theme.surface,
+    marginHorizontal: 10,
+    marginVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.glassBorder,
   },
   archiveIcon: {
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: colors.divider,
+    backgroundColor: theme.divider,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -565,14 +580,25 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: '600',
-    color: colors.textPrimary,
+    color: theme.textPrimary,
   },
-  archiveSubtitle: {fontSize: 14, color: colors.textSecondary, marginTop: 2},
+  archiveSubtitle: {fontSize: 14, color: theme.textSecondary, marginTop: 2},
   row: {
     flexDirection: 'row',
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 11,
     alignItems: 'center',
+    backgroundColor: theme.surface,
+    marginHorizontal: 10,
+    marginVertical: 3,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.mode === 'dark' ? theme.divider : 'transparent',
+    shadowColor: theme.bubbleShadow,
+    shadowOffset: {width: 0, height: 1},
+    shadowOpacity: theme.mode === 'light' ? 0.08 : 0,
+    shadowRadius: 4,
+    elevation: theme.mode === 'light' ? 1 : 0,
   },
   body: {flex: 1, justifyContent: 'center', marginLeft: 12},
   rowTop: {flexDirection: 'row', alignItems: 'center', marginBottom: 4},
@@ -581,16 +607,16 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: '600',
-    color: colors.textPrimary,
+    color: theme.textPrimary,
     marginRight: 8,
   },
-  time: {fontSize: 12, color: colors.textTertiary},
-  preview: {flex: 1, fontSize: 14, color: colors.textSecondary},
+  time: {fontSize: 12, color: theme.textTertiary},
+  preview: {flex: 1, fontSize: 14, color: theme.textSecondary},
   badge: {
     minWidth: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: colors.badge,
+    backgroundColor: theme.badge,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 7,
@@ -598,19 +624,19 @@ const styles = StyleSheet.create({
   },
   badgeText: {color: 'white', fontSize: 12, fontWeight: '700'},
   separator: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.divider,
+    height: 0,
     marginLeft: 78,
   },
   empty: {paddingTop: 80, alignItems: 'center'},
-  emptyText: {color: colors.textSecondary, fontSize: 14},
+  emptyText: {color: theme.textSecondary, fontSize: 14},
   footer: {paddingVertical: 16, alignItems: 'center'},
   footerEnd: {
     textAlign: 'center',
-    color: colors.textTertiary,
+    color: theme.textTertiary,
     fontSize: 11,
     paddingVertical: 14,
   },
-});
+  });
+}
 
 export default ChatsScreen;

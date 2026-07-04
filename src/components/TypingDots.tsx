@@ -5,14 +5,16 @@
 
 import React, {useEffect, useRef} from 'react';
 import {Animated, StyleSheet, View} from 'react-native';
-import {colors} from '../theme';
+import {useTheme} from '../theme';
 
 interface Props {
   color?: string;
   size?: number;
 }
 
-const TypingDots: React.FC<Props> = ({color = colors.textSecondary, size = 4}) => {
+const TypingDots: React.FC<Props> = ({color, size = 4}) => {
+  const {theme} = useTheme();
+  const dotColor = color ?? theme.textSecondary;
   const a = useRef(new Animated.Value(0)).current;
   const b = useRef(new Animated.Value(0)).current;
   const c = useRef(new Animated.Value(0)).current;
@@ -36,7 +38,7 @@ const TypingDots: React.FC<Props> = ({color = colors.textSecondary, size = 4}) =
     width: size,
     height: size,
     borderRadius: size / 2,
-    backgroundColor: color,
+    backgroundColor: dotColor,
     opacity: v.interpolate({inputRange: [0, 1], outputRange: [0.25, 1]}),
     transform: [
       {translateY: v.interpolate({inputRange: [0, 1], outputRange: [0, -3]})},
