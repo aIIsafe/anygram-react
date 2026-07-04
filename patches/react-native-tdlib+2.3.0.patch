@@ -1,0 +1,65 @@
+diff --git a/node_modules/react-native-tdlib/android/src/main/java/com/reactnativetdlib/tdlibclient/TdLibModule.java b/node_modules/react-native-tdlib/android/src/main/java/com/reactnativetdlib/tdlibclient/TdLibModule.java
+index 30b643d..85a8b78 100644
+--- a/node_modules/react-native-tdlib/android/src/main/java/com/reactnativetdlib/tdlibclient/TdLibModule.java
++++ b/node_modules/react-native-tdlib/android/src/main/java/com/reactnativetdlib/tdlibclient/TdLibModule.java
+@@ -1707,7 +1707,28 @@ public void addComment(
+                 @Override
+                 public void onResult(TdApi.Object object) {
+                     if (object instanceof TdApi.Ok) {
+-                        promise.resolve("TDLib parameters set successfully");
++                        if (parameters.hasKey("mtproto_proxy") && !parameters.isNull("mtproto_proxy")) {
++                            ReadableMap proxyConfig = parameters.getMap("mtproto_proxy");
++                            TdApi.ProxyTypeMtproto proxyType = new TdApi.ProxyTypeMtproto(
++                                proxyConfig.getString("secret")
++                            );
++                            TdApi.AddProxy addProxy = new TdApi.AddProxy(
++                                proxyConfig.getString("server"),
++                                proxyConfig.getInt("port"),
++                                true,
++                                proxyType
++                            );
++                            client.send(addProxy, proxyResult -> {
++                                if (proxyResult instanceof TdApi.Ok) {
++                                    promise.resolve("TDLib parameters set successfully");
++                                } else if (proxyResult instanceof TdApi.Error) {
++                                    TdApi.Error error = (TdApi.Error) proxyResult;
++                                    promise.reject("TDLIB_PROXY_ERROR", error.message);
++                                }
++                            });
++                        } else {
++                            promise.resolve("TDLib parameters set successfully");
++                        }
+                     } else if (object instanceof TdApi.Error) {
+                         TdApi.Error error = (TdApi.Error) object;
+                         promise.reject("TDLIB_PARAMS_ERROR", error.message);
+diff --git a/node_modules/react-native-tdlib/ios/TdLibModule.mm b/node_modules/react-native-tdlib/ios/TdLibModule.mm
+index a916c8a..c359e5b 100644
+--- a/node_modules/react-native-tdlib/ios/TdLibModule.mm
++++ b/node_modules/react-native-tdlib/ios/TdLibModule.mm
+@@ -462,7 +462,25 @@ RCT_EXPORT_METHOD(startTdLib:(NSDictionary *)parameters
+         };
+ 
+         [self sendTdLibRequest:params resolve:^(id result) {
+-            resolve(@"TDLib service started successfully");
++            NSDictionary *proxyConfig = parameters[@"mtproto_proxy"];
++            if (proxyConfig == nil) {
++                resolve(@"TDLib service started successfully");
++                return;
++            }
++
++            NSDictionary *proxyRequest = @{
++                @"@type": @"addProxy",
++                @"server": proxyConfig[@"server"] ?: @"",
++                @"port": proxyConfig[@"port"] ?: @443,
++                @"enable": @YES,
++                @"type": @{
++                    @"@type": @"proxyTypeMtproto",
++                    @"secret": proxyConfig[@"secret"] ?: @""
++                }
++            };
++            [self sendTdLibRequest:proxyRequest resolve:^(id proxyResult) {
++                resolve(@"TDLib service started successfully");
++            } reject:reject];
+         } reject:reject];
+     } @catch (NSException *exception) {
+         reject(@"TDLIB_START_ERROR", exception.reason, nil);
