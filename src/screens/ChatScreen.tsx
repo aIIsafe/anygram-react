@@ -19,7 +19,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import AudioRecorderPlayer from 'react-native-audio-recorder-player';
 import {
   launchCamera,
   launchImageLibrary,
@@ -37,6 +36,12 @@ import {useKeyboardHeight} from '../hooks/useKeyboardHeight';
 import {AppTheme, formatTime, useTheme} from '../theme';
 import {safeJsonParse, useTdUpdate} from '../tdlib';
 import {sendPhotoMessage, sendVoiceMessage} from '../tdlib/messages';
+import {
+  cancelVoiceRecording,
+  resetVoiceRecorder,
+  startVoiceRecording,
+  stopVoiceRecording,
+} from '../services/voiceRecorder';
 import {ChatSummary} from './ChatsScreen';
 
 interface Props {
@@ -112,7 +117,6 @@ const summarizeEntities = (raw: string): string[] => {
 };
 const VIEW_BATCH_MS = 500;
 const TYPING_TIMEOUT_MS = 5000;
-const audioRecorder = new AudioRecorderPlayer();
 
 const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
   const {theme} = useTheme();
@@ -150,8 +154,6 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
   const entitiesReqIdRef = useRef(0);
   const recordStartedAtRef = useRef(0);
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const recordSessionRef = useRef<'idle' | 'starting' | 'recording'>('idle');
-  const stopPendingRef = useRef(false);
 
   const width = Dimensions.get('window').width;
   const keyboardOpen = keyboardHeight > 0;
@@ -234,8 +236,7 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
       if (recordTimerRef.current) {
         clearInterval(recordTimerRef.current);
       }
-      audioRecorder.stopRecorder().catch(() => {});
-      audioRecorder.removeRecordBackListener();
+      cancelVoiceRecording().catch(() => {});
     };
   }, []);
 
@@ -247,6 +248,15 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
       return [msg, ...prev];
     });
     enqueueViewed([msg.id]);
+  });
+
+  useTdUpdate('updateMessageSendFailed', data => {
+    if (data?.chat_id !== chat.id) {
+      return;
+    }
+    const reason =
+      data?.error?.message ?? data?.error?.['@type'] ?? 'Сообщение не отправлено';
+    Alert.alert('Ошибка отправки', String(reason));
   });
 
   useTdUpdate('updateMessageInteractionInfo', data => {
@@ -389,109 +399,61 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
   }, [chat.id, replyingTo?.id, sendMedia]);
 
   const finishRecording = useCallback(async () => {
-    recordSessionRef.current = 'idle';
-    setRecording(false);
     if (recordTimerRef.current) {
       clearInterval(recordTimerRef.current);
       recordTimerRef.current = null;
     }
+    setRecording(false);
     try {
-      const uri = await audioRecorder.stopRecorder();
-      audioRecorder.removeRecordBackListener();
-      const duration = (Date.now() - recordStartedAtRef.current) / 1000;
-      if (!uri) {
-        Alert.alert('Голосовое', 'Файл записи не создан');
-        return;
-      }
-      if (duration < 0.35) {
-        Alert.alert('Голосовое', 'Слишком короткая запись — держите кнопку дольше');
+      const {uri, durationSec} = await stopVoiceRecording();
+      if (durationSec < 0.5) {
+        Alert.alert('Голосовое', 'Слишком короткая запись — говорите дольше');
         return;
       }
       await sendMedia(replyId =>
-        sendVoiceMessage(chat.id, uri, duration, replyId),
+        sendVoiceMessage(chat.id, uri, durationSec, replyId),
       );
     } catch (e: any) {
+      resetVoiceRecorder();
       Alert.alert('Голосовое', e?.message ?? 'Не удалось отправить');
     } finally {
       setRecordingSec(0);
     }
   }, [chat.id, sendMedia]);
 
-  const onRecordStart = useCallback(() => {
-    if (recordSessionRef.current !== 'idle' || sending) {
+  const onRecordToggle = useCallback(async () => {
+    if (sending) {
       return;
     }
-    recordSessionRef.current = 'starting';
-    stopPendingRef.current = false;
-    recordStartedAtRef.current = Date.now();
-    setRecording(true);
-    setRecordingSec(0);
-    Keyboard.dismiss();
-
-    audioRecorder
-      .startRecorder(undefined, undefined, true)
-      .then(() => {
-        if (recordSessionRef.current === 'starting') {
-          recordSessionRef.current = 'recording';
-        }
-        if (stopPendingRef.current) {
-          stopPendingRef.current = false;
-          finishRecording();
-        }
-      })
-      .catch((e: any) => {
-        recordSessionRef.current = 'idle';
+    if (!recording) {
+      try {
+        Keyboard.dismiss();
+        recordStartedAtRef.current = Date.now();
+        setRecording(true);
+        setRecordingSec(0);
+        await startVoiceRecording();
+        recordTimerRef.current = setInterval(() => {
+          setRecordingSec(
+            Math.max(
+              1,
+              Math.round((Date.now() - recordStartedAtRef.current) / 1000),
+            ),
+          );
+        }, 400);
+      } catch (e: any) {
         setRecording(false);
         setRecordingSec(0);
-        if (recordTimerRef.current) {
-          clearInterval(recordTimerRef.current);
-          recordTimerRef.current = null;
-        }
+        resetVoiceRecorder();
         Alert.alert(
           'Микрофон',
           e?.message ??
-            'Разрешите доступ к микрофону в Настройки → AnyGram',
+            'Разрешите доступ к микрофону: Настройки → AnyGram → Микрофон',
         );
-      });
-
-    recordTimerRef.current = setInterval(() => {
-      setRecordingSec(
-        Math.max(
-          1,
-          Math.round((Date.now() - recordStartedAtRef.current) / 1000),
-        ),
-      );
-    }, 400);
-  }, [sending, finishRecording]);
-
-  const onRecordStop = useCallback(() => {
-    if (recordSessionRef.current === 'idle') {
+      }
       return;
     }
-    if (recordSessionRef.current === 'starting') {
-      stopPendingRef.current = true;
-      return;
-    }
-    if (recordSessionRef.current === 'recording') {
-      finishRecording();
-    }
-  }, [finishRecording]);
-
-  const onRecordCancel = useCallback(() => {
-    if (recordSessionRef.current === 'idle') {
-      return;
-    }
-    stopPendingRef.current = false;
-    recordSessionRef.current = 'idle';
-    setRecording(false);
-    setRecordingSec(0);
-    if (recordTimerRef.current) {
-      clearInterval(recordTimerRef.current);
-      recordTimerRef.current = null;
-    }
-    audioRecorder.stopRecorder().catch(() => {});
-    audioRecorder.removeRecordBackListener();
-  }, []);
+    await finishRecording();
+  }, [sending, recording, finishRecording]);
 
   // Fire a typing action
   const typingSentRef = useRef<number>(0);
@@ -806,9 +768,7 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
           onChangeText={onChangeText}
           onSend={onSend}
           onAttach={onAttach}
-          onRecordStart={onRecordStart}
-          onRecordStop={onRecordStop}
-          onRecordCancel={onRecordCancel}
+          onRecordToggle={onRecordToggle}
           sending={sending}
           recording={recording}
           recordingSec={recordingSec}

@@ -1,7 +1,12 @@
 import TdLib from 'react-native-tdlib';
+import {safeJsonParse} from '../tdlib';
 
 function normalizeLocalPath(path: string): string {
-  return path.replace(/^file:\/\//, '');
+  let normalized = path.replace(/^file:\/\//, '');
+  if (normalized.startsWith('/private')) {
+    normalized = normalized.replace(/^\/private/, '');
+  }
+  return normalized;
 }
 
 function replyFields(replyToMessageId?: number) {
@@ -16,13 +21,23 @@ function replyFields(replyToMessageId?: number) {
   };
 }
 
+async function sendMessageRequest(payload: Record<string, unknown>): Promise<void> {
+  const raw = await TdLib.td_json_client_send(payload);
+  if (typeof raw === 'string' && raw.includes('error')) {
+    const parsed = safeJsonParse<{message?: string}>(raw);
+    if (parsed?.message) {
+      throw new Error(parsed.message);
+    }
+  }
+}
+
 export async function sendPhotoMessage(
   chatId: number,
   localUri: string,
   replyToMessageId?: number,
 ): Promise<void> {
   const path = normalizeLocalPath(localUri);
-  await TdLib.td_json_client_send({
+  await sendMessageRequest({
     '@type': 'sendMessage',
     chat_id: chatId,
     ...replyFields(replyToMessageId),
@@ -36,6 +51,9 @@ export async function sendPhotoMessage(
   });
 }
 
+/** Пустая waveform в TDLib JSON — base64-пустая строка (bytes). */
+const EMPTY_WAVEFORM = '';
+
 export async function sendVoiceMessage(
   chatId: number,
   localUri: string,
@@ -43,8 +61,7 @@ export async function sendVoiceMessage(
   replyToMessageId?: number,
 ): Promise<void> {
   const path = normalizeLocalPath(localUri);
-  const waveform = Array.from({length: 63}, (_, i) => 12 + ((i * 11) % 88));
-  await TdLib.td_json_client_send({
+  await sendMessageRequest({
     '@type': 'sendMessage',
     chat_id: chatId,
     ...replyFields(replyToMessageId),
@@ -55,7 +72,7 @@ export async function sendVoiceMessage(
         path,
       },
       duration: Math.max(1, Math.round(durationSec)),
-      waveform,
+      waveform: EMPTY_WAVEFORM,
     },
   });
 }

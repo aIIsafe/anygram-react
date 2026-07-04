@@ -21,9 +21,7 @@ interface Props {
   onChangeText: (text: string) => void;
   onSend: () => void;
   onAttach: () => void;
-  onRecordStart: () => void;
-  onRecordStop: () => void;
-  onRecordCancel: () => void;
+  onRecordToggle: () => void;
   sending: boolean;
   recording: boolean;
   recordingSec: number;
@@ -37,9 +35,7 @@ const ChatComposer: React.FC<Props> = ({
   onChangeText,
   onSend,
   onAttach,
-  onRecordStart,
-  onRecordStop,
-  onRecordCancel,
+  onRecordToggle,
   sending,
   recording,
   recordingSec,
@@ -63,7 +59,7 @@ const ChatComposer: React.FC<Props> = ({
         <View style={styles.recordingBar}>
           <View style={styles.recordingDot} />
           <Text style={styles.recordingText}>
-            Запись {recordingSec} сек — отпустите для отправки
+            Запись {recordingSec} сек — нажмите 🎤 ещё раз для отправки
           </Text>
         </View>
       ) : null}
@@ -105,16 +101,16 @@ const ChatComposer: React.FC<Props> = ({
             )}
           </TouchableOpacity>
         ) : (
-          <View
-            onStartShouldSetResponder={() => true}
-            onResponderGrant={onRecordStart}
-            onResponderRelease={onRecordStop}
-            onResponderTerminate={onRecordCancel}
-            style={[styles.actionBtn, recording && styles.actionBtnRecording]}>
+          <TouchableOpacity
+            onPress={onRecordToggle}
+            disabled={sending}
+            style={[styles.actionBtn, recording && styles.actionBtnRecording]}
+            activeOpacity={0.75}
+            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
             <Text style={[styles.actionIcon, recording && styles.actionIconRecording]}>
               🎤
             </Text>
-          </View>
+          </TouchableOpacity>
         )}
       </View>
     </LiquidGlass>
