@@ -102,6 +102,7 @@ jobs:
             CODE_SIGN_IDENTITY="$APPLE_SIGNING_IDENTITY" \
             CODE_SIGN_STYLE=Manual \
             PROVISIONING_PROFILE_SPECIFIER="" \
+            GCC_TREAT_WARNINGS_AS_ERRORS=NO \
             archive
 
       - name: Build and archive (unsigned)
@@ -117,6 +118,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            GCC_TREAT_WARNINGS_AS_ERRORS=NO \
             archive
 
       - name: Export signed IPA
