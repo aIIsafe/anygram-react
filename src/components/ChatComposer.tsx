@@ -6,10 +6,10 @@ import React, {useMemo} from 'react';
 import {
   ActivityIndicator,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import LiquidGlass from './LiquidGlass';
@@ -23,10 +23,12 @@ interface Props {
   onAttach: () => void;
   onRecordStart: () => void;
   onRecordStop: () => void;
+  onRecordCancel: () => void;
   sending: boolean;
   recording: boolean;
   recordingSec: number;
   bottomInset: number;
+  keyboardOpen: boolean;
 }
 
 const ChatComposer: React.FC<Props> = ({
@@ -37,10 +39,12 @@ const ChatComposer: React.FC<Props> = ({
   onAttach,
   onRecordStart,
   onRecordStop,
+  onRecordCancel,
   sending,
   recording,
   recordingSec,
   bottomInset,
+  keyboardOpen,
 }) => {
   const styles = useMemo(
     () => createStyles(theme, bottomInset),
@@ -50,7 +54,11 @@ const ChatComposer: React.FC<Props> = ({
   const canSend = !sending && !recording && value.trim().length > 0;
 
   return (
-    <LiquidGlass intensity="soft" compact native style={styles.glass}>
+    <LiquidGlass
+      intensity="soft"
+      compact
+      native={Platform.OS === 'ios' && !keyboardOpen}
+      style={styles.glass}>
       {recording ? (
         <View style={styles.recordingBar}>
           <View style={styles.recordingDot} />
@@ -60,13 +68,14 @@ const ChatComposer: React.FC<Props> = ({
         </View>
       ) : null}
       <View style={styles.bar}>
-        <Pressable
+        <TouchableOpacity
           onPress={onAttach}
           disabled={sending || recording}
           style={styles.attachBtn}
-          hitSlop={8}>
+          activeOpacity={0.6}
+          hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
           <Text style={styles.attachIcon}>📎</Text>
-        </Pressable>
+        </TouchableOpacity>
 
         <View style={styles.fieldWrap}>
           <TextInput
@@ -83,28 +92,29 @@ const ChatComposer: React.FC<Props> = ({
         </View>
 
         {canSend ? (
-          <Pressable
+          <TouchableOpacity
             onPress={onSend}
             disabled={sending}
             style={[styles.actionBtn, styles.actionBtnActive]}
-            hitSlop={8}>
+            activeOpacity={0.75}
+            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
             {sending ? (
               <ActivityIndicator color={theme.textOnPrimary} size="small" />
             ) : (
               <Text style={[styles.actionIcon, styles.actionIconActive]}>➤</Text>
             )}
-          </Pressable>
+          </TouchableOpacity>
         ) : (
-          <Pressable
-            onPressIn={onRecordStart}
-            onPressOut={onRecordStop}
-            disabled={sending}
-            style={[styles.actionBtn, recording && styles.actionBtnRecording]}
-            hitSlop={8}>
+          <View
+            onStartShouldSetResponder={() => true}
+            onResponderGrant={onRecordStart}
+            onResponderRelease={onRecordStop}
+            onResponderTerminate={onRecordCancel}
+            style={[styles.actionBtn, recording && styles.actionBtnRecording]}>
             <Text style={[styles.actionIcon, recording && styles.actionIconRecording]}>
               🎤
             </Text>
-          </Pressable>
+          </View>
         )}
       </View>
     </LiquidGlass>

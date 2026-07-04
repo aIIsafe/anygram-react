@@ -8,6 +8,7 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  Keyboard,
   Linking,
   Modal,
   Platform,
@@ -149,9 +150,12 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
   const entitiesReqIdRef = useRef(0);
   const recordStartedAtRef = useRef(0);
   const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const recordingRef = useRef(false);
+  const recordSessionRef = useRef<'idle' | 'starting' | 'recording'>('idle');
+  const stopPendingRef = useRef(false);
 
   const width = Dimensions.get('window').width;
+  const keyboardOpen = keyboardHeight > 0;
+  const footerHeight = composerHeight + keyboardHeight;
   const overlayExtra =
     (replyingTo ? 46 : 0) + (entityChips.length > 0 ? 34 : 0);
   const listBottomPad = composerHeight + overlayExtra + 12;
@@ -384,33 +388,8 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
     ]);
   }, [chat.id, replyingTo?.id, sendMedia]);
 
-  const onRecordStart = useCallback(async () => {
-    if (recordingRef.current || sending) {
-      return;
-    }
-    try {
-      recordingRef.current = true;
-      setRecording(true);
-      setRecordingSec(0);
-      recordStartedAtRef.current = Date.now();
-      await audioRecorder.startRecorder();
-      recordTimerRef.current = setInterval(() => {
-        setRecordingSec(
-          Math.max(1, Math.round((Date.now() - recordStartedAtRef.current) / 1000)),
-        );
-      }, 500);
-    } catch (e: any) {
-      recordingRef.current = false;
-      setRecording(false);
-      Alert.alert('Микрофон', e?.message ?? 'Не удалось начать запись');
-    }
-  }, [sending]);
-
-  const onRecordStop = useCallback(async () => {
-    if (!recordingRef.current) {
-      return;
-    }
-    recordingRef.current = false;
+  const finishRecording = useCallback(async () => {
+    recordSessionRef.current = 'idle';
     setRecording(false);
     if (recordTimerRef.current) {
       clearInterval(recordTimerRef.current);
@@ -420,7 +399,12 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
       const uri = await audioRecorder.stopRecorder();
       audioRecorder.removeRecordBackListener();
       const duration = (Date.now() - recordStartedAtRef.current) / 1000;
-      if (!uri || duration < 0.6) {
+      if (!uri) {
+        Alert.alert('Голосовое', 'Файл записи не создан');
+        return;
+      }
+      if (duration < 0.35) {
+        Alert.alert('Голосовое', 'Слишком короткая запись — держите кнопку дольше');
         return;
       }
       await sendMedia(replyId =>
@@ -432,6 +416,82 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
       setRecordingSec(0);
     }
   }, [chat.id, sendMedia]);
+
+  const onRecordStart = useCallback(() => {
+    if (recordSessionRef.current !== 'idle' || sending) {
+      return;
+    }
+    recordSessionRef.current = 'starting';
+    stopPendingRef.current = false;
+    recordStartedAtRef.current = Date.now();
+    setRecording(true);
+    setRecordingSec(0);
+    Keyboard.dismiss();
+
+    audioRecorder
+      .startRecorder(undefined, undefined, true)
+      .then(() => {
+        if (recordSessionRef.current === 'starting') {
+          recordSessionRef.current = 'recording';
+        }
+        if (stopPendingRef.current) {
+          stopPendingRef.current = false;
+          finishRecording();
+        }
+      })
+      .catch((e: any) => {
+        recordSessionRef.current = 'idle';
+        setRecording(false);
+        setRecordingSec(0);
+        if (recordTimerRef.current) {
+          clearInterval(recordTimerRef.current);
+          recordTimerRef.current = null;
+        }
+        Alert.alert(
+          'Микрофон',
+          e?.message ??
+            'Разрешите доступ к микрофону в Настройки → AnyGram',
+        );
+      });
+
+    recordTimerRef.current = setInterval(() => {
+      setRecordingSec(
+        Math.max(
+          1,
+          Math.round((Date.now() - recordStartedAtRef.current) / 1000),
+        ),
+      );
+    }, 400);
+  }, [sending, finishRecording]);
+
+  const onRecordStop = useCallback(() => {
+    if (recordSessionRef.current === 'idle') {
+      return;
+    }
+    if (recordSessionRef.current === 'starting') {
+      stopPendingRef.current = true;
+      return;
+    }
+    if (recordSessionRef.current === 'recording') {
+      finishRecording();
+    }
+  }, [finishRecording]);
+
+  const onRecordCancel = useCallback(() => {
+    if (recordSessionRef.current === 'idle') {
+      return;
+    }
+    stopPendingRef.current = false;
+    recordSessionRef.current = 'idle';
+    setRecording(false);
+    setRecordingSec(0);
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    audioRecorder.stopRecorder().catch(() => {});
+    audioRecorder.removeRecordBackListener();
+  }, []);
 
   // Fire a typing action
   const typingSentRef = useRef<number>(0);
@@ -669,7 +729,7 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
         </View>
       </LiquidGlass>
 
-      <View style={styles.messagesArea}>
+      <View style={[styles.messagesArea, {marginBottom: footerHeight}]}>
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator size="large" color={theme.primary} />
@@ -706,7 +766,7 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
         <View
           style={[
             styles.entitiesBar,
-            {bottom: keyboardHeight + composerHeight},
+            {bottom: footerHeight},
           ]}>
           {entityChips.map(chip => (
             <View key={chip} style={styles.entityChip}>
@@ -720,7 +780,7 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
         <View
           style={[
             styles.replyingBar,
-            {bottom: keyboardHeight + composerHeight},
+            {bottom: footerHeight},
           ]}>
           <View style={styles.replyingBar_accent} />
           <View style={{flex: 1}}>
@@ -748,10 +808,12 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
           onAttach={onAttach}
           onRecordStart={onRecordStart}
           onRecordStop={onRecordStop}
+          onRecordCancel={onRecordCancel}
           sending={sending}
           recording={recording}
           recordingSec={recordingSec}
-          bottomInset={keyboardHeight > 0 ? 6 : insets.bottom}
+          keyboardOpen={keyboardOpen}
+          bottomInset={keyboardOpen ? 6 : insets.bottom}
         />
       </View>
 

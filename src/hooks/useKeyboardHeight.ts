@@ -6,23 +6,29 @@ export function useKeyboardHeight(): number {
 
   useEffect(() => {
     const onShow = (event: KeyboardEvent) => {
-      setHeight(event.endCoordinates.height);
+      // endCoordinates.height — высота клавиатуры от низа экрана
+      setHeight(Math.max(0, event.endCoordinates.height));
     };
     const onHide = () => {
       setHeight(0);
     };
 
-    const showEvt =
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt =
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showEvents =
+      Platform.OS === 'ios'
+        ? (['keyboardWillShow', 'keyboardDidShow'] as const)
+        : (['keyboardDidShow'] as const);
+    const hideEvents =
+      Platform.OS === 'ios'
+        ? (['keyboardWillHide', 'keyboardDidHide'] as const)
+        : (['keyboardDidHide'] as const);
 
-    const showSub = Keyboard.addListener(showEvt, onShow);
-    const hideSub = Keyboard.addListener(hideEvt, onHide);
+    const subs = [
+      ...showEvents.map(name => Keyboard.addListener(name, onShow)),
+      ...hideEvents.map(name => Keyboard.addListener(name, onHide)),
+    ];
 
     return () => {
-      showSub.remove();
-      hideSub.remove();
+      subs.forEach(sub => sub.remove());
     };
   }, []);
 
