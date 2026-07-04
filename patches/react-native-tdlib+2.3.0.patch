@@ -1,8 +1,142 @@
 diff --git a/node_modules/react-native-tdlib/android/src/main/java/com/reactnativetdlib/tdlibclient/TdLibModule.java b/node_modules/react-native-tdlib/android/src/main/java/com/reactnativetdlib/tdlibclient/TdLibModule.java
-index 30b643d..85a8b78 100644
+index 30b643d..8d9d131 100644
 --- a/node_modules/react-native-tdlib/android/src/main/java/com/reactnativetdlib/tdlibclient/TdLibModule.java
 +++ b/node_modules/react-native-tdlib/android/src/main/java/com/reactnativetdlib/tdlibclient/TdLibModule.java
-@@ -1707,7 +1707,28 @@ public void addComment(
+@@ -1462,6 +1462,133 @@ public void addComment(
+     public void removeListeners(double count) {}
+ 
+ 
++    @ReactMethod
++    public void loadChatsWithList(String listType, int limit, Promise promise) {
++        try {
++            if (client == null) {
++                promise.reject("CLIENT_NOT_INITIALIZED", "TDLib client is not initialized");
++                return;
++            }
++
++            TdApi.ChatList chatList = "archive".equals(listType)
++                ? new TdApi.ChatListArchive()
++                : null;
++            TdApi.LoadChats request = new TdApi.LoadChats(chatList, limit);
++            client.send(request, object -> {
++                if (object instanceof TdApi.Ok) {
++                    promise.resolve("Chats loaded successfully");
++                } else if (object instanceof TdApi.Error) {
++                    TdApi.Error error = (TdApi.Error) object;
++                    if (error.code == 404) {
++                        promise.resolve("No more chats to load");
++                    } else {
++                        promise.reject("LOAD_CHATS_ERROR", error.message);
++                    }
++                }
++            });
++        } catch (Exception e) {
++            promise.reject("LOAD_CHATS_EXCEPTION", e.getMessage());
++        }
++    }
++
++    @ReactMethod
++    public void getChatsWithList(String listType, int limit, Promise promise) {
++        try {
++            if (client == null) {
++                promise.reject("CLIENT_NOT_INITIALIZED", "TDLib client is not initialized");
++                return;
++            }
++
++            TdApi.ChatList chatList = "archive".equals(listType)
++                ? new TdApi.ChatListArchive()
++                : null;
++            TdApi.GetChats request = new TdApi.GetChats(chatList, limit);
++            client.send(request, object -> {
++                if (object instanceof TdApi.Chats) {
++                    TdApi.Chats chats = (TdApi.Chats) object;
++                    long[] ids = chats.chatIds != null ? chats.chatIds : new long[0];
++
++                    if (ids.length == 0) {
++                        promise.resolve("[]");
++                        return;
++                    }
++
++                    final String[] results = new String[ids.length];
++                    final CountDownLatch latch = new CountDownLatch(ids.length);
++
++                    for (int i = 0; i < ids.length; i++) {
++                        final int index = i;
++                        client.send(new TdApi.GetChat(ids[i]), chatObj -> {
++                            try {
++                                if (chatObj instanceof TdApi.Chat) {
++                                    results[index] = gson.toJson(chatObj);
++                                }
++                            } catch (Exception ignored) {
++                            } finally {
++                                latch.countDown();
++                            }
++                        });
++                    }
++
++                    new Thread(() -> {
++                        try {
++                            boolean completed = latch.await(10, TimeUnit.SECONDS);
++                            if (!completed) {
++                                promise.reject("GET_CHATS_TIMEOUT",
++                                    "Timed out waiting for chat details (" + latch.getCount() + " remaining)");
++                                return;
++                            }
++                            StringBuilder sb = new StringBuilder("[");
++                            boolean first = true;
++                            for (String r : results) {
++                                if (r != null) {
++                                    if (!first) sb.append(",");
++                                    sb.append(r);
++                                    first = false;
++                                }
++                            }
++                            sb.append("]");
++                            promise.resolve(sb.toString());
++                        } catch (InterruptedException e) {
++                            Thread.currentThread().interrupt();
++                            promise.reject("GET_CHATS_INTERRUPTED", e.getMessage());
++                        }
++                    }).start();
++                } else if (object instanceof TdApi.Error) {
++                    TdApi.Error error = (TdApi.Error) object;
++                    promise.reject("GET_CHATS_ERROR", error.message);
++                }
++            });
++        } catch (Exception e) {
++            promise.reject("GET_CHATS_EXCEPTION", e.getMessage());
++        }
++    }
++
++    @ReactMethod
++    public void addChatToList(double chatId, String listType, Promise promise) {
++        try {
++            if (client == null) {
++                promise.reject("CLIENT_NOT_INITIALIZED", "TDLib client is not initialized");
++                return;
++            }
++
++            TdApi.ChatList chatList = "archive".equals(listType)
++                ? new TdApi.ChatListArchive()
++                : new TdApi.ChatListMain();
++            TdApi.AddChatToList request = new TdApi.AddChatToList((long) chatId, chatList);
++            client.send(request, object -> {
++                if (object instanceof TdApi.Ok) {
++                    promise.resolve("Chat list updated");
++                } else if (object instanceof TdApi.Error) {
++                    TdApi.Error error = (TdApi.Error) object;
++                    promise.reject("ADD_CHAT_TO_LIST_ERROR", error.message);
++                }
++            });
++        } catch (Exception e) {
++            promise.reject("ADD_CHAT_TO_LIST_EXCEPTION", e.getMessage());
++        }
++    }
++
+     @ReactMethod
+     public void loadChats(int limit, Promise promise) {
+         try {
+@@ -1707,7 +1834,28 @@ public void addComment(
                  @Override
                  public void onResult(TdApi.Object object) {
                      if (object instanceof TdApi.Ok) {
@@ -33,7 +167,7 @@ index 30b643d..85a8b78 100644
                          TdApi.Error error = (TdApi.Error) object;
                          promise.reject("TDLIB_PARAMS_ERROR", error.message);
 diff --git a/node_modules/react-native-tdlib/ios/TdLibModule.mm b/node_modules/react-native-tdlib/ios/TdLibModule.mm
-index a916c8a..c359e5b 100644
+index a916c8a..de59a8d 100644
 --- a/node_modules/react-native-tdlib/ios/TdLibModule.mm
 +++ b/node_modules/react-native-tdlib/ios/TdLibModule.mm
 @@ -462,7 +462,25 @@ RCT_EXPORT_METHOD(startTdLib:(NSDictionary *)parameters
@@ -63,3 +197,111 @@ index a916c8a..c359e5b 100644
          } reject:reject];
      } @catch (NSException *exception) {
          reject(@"TDLIB_START_ERROR", exception.reason, nil);
+@@ -699,6 +717,107 @@ RCT_EXPORT_METHOD(getSupergroup:(double)supergroupId
+ 
+ // ==================== Chat List ====================
+ 
++- (NSDictionary *)chatListForType:(NSString *)listType {
++    if ([listType isEqualToString:@"archive"]) {
++        return @{@"@type": @"chatListArchive"};
++    }
++    return @{@"@type": @"chatListMain"};
++}
++
++- (void)fetchChatsWithIds:(NSArray *)chatIds resolve:(RCTPromiseResolveBlock)resolve {
++    if (!chatIds || chatIds.count == 0) {
++        resolve(@"[]");
++        return;
++    }
++
++    NSUInteger count = chatIds.count;
++    NSMutableArray *results = [[NSMutableArray alloc] initWithCapacity:count];
++    for (NSUInteger i = 0; i < count; i++) {
++        [results addObject:[NSNull null]];
++    }
++    dispatch_group_t group = dispatch_group_create();
++
++    for (NSUInteger i = 0; i < count; i++) {
++        dispatch_group_enter(group);
++        NSUInteger index = i;
++        [self sendTdLibRequest:@{@"@type": @"getChat", @"chat_id": chatIds[i]}
++                       resolve:^(id chatResult) {
++            @synchronized (results) {
++                results[index] = chatResult ?: [NSNull null];
++            }
++            dispatch_group_leave(group);
++        } reject:^(NSString *code, NSString *message, NSError *error) {
++            dispatch_group_leave(group);
++        }];
++    }
++
++    dispatch_group_notify(group, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
++        NSMutableArray *ordered = [NSMutableArray new];
++        for (id item in results) {
++            if (item != [NSNull null]) {
++                [ordered addObject:item];
++            }
++        }
++        NSString *json = [NSString stringWithFormat:@"[%@]", [ordered componentsJoinedByString:@","]];
++        resolve(json);
++    });
++}
++
++RCT_EXPORT_METHOD(loadChatsWithList:(NSString *)listType
++                  limit:(int)limit
++                  resolve:(RCTPromiseResolveBlock)resolve
++                  rejecter:(RCTPromiseRejectBlock)reject) {
++    NSMutableDictionary *request = [@{
++        @"@type": @"loadChats",
++        @"limit": @(limit)
++    } mutableCopy];
++    if ([listType isEqualToString:@"archive"]) {
++        request[@"chat_list"] = [self chatListForType:listType];
++    }
++    [self sendTdLibRequest:request resolve:^(id result) {
++        resolve(@"Chats loaded successfully");
++    } reject:^(NSString *code, NSString *message, NSError *error) {
++        if ([code isEqualToString:@"404"]) {
++            resolve(@"No more chats to load");
++        } else {
++            reject(code, message, error);
++        }
++    }];
++}
++
++RCT_EXPORT_METHOD(getChatsWithList:(NSString *)listType
++                  limit:(int)limit
++                  resolve:(RCTPromiseResolveBlock)resolve
++                  rejecter:(RCTPromiseRejectBlock)reject) {
++    NSMutableDictionary *request = [@{
++        @"@type": @"getChats",
++        @"limit": @(limit)
++    } mutableCopy];
++    if ([listType isEqualToString:@"archive"]) {
++        request[@"chat_list"] = [self chatListForType:listType];
++    }
++    [self sendTdLibRequest:request resolve:^(id result) {
++        NSData *data = [result dataUsingEncoding:NSUTF8StringEncoding];
++        NSDictionary *dict = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
++        NSArray *chatIds = dict[@"chat_ids"];
++        [self fetchChatsWithIds:chatIds resolve:resolve];
++    } reject:reject];
++}
++
++RCT_EXPORT_METHOD(addChatToList:(double)chatId
++                  listType:(NSString *)listType
++                  resolve:(RCTPromiseResolveBlock)resolve
++                  rejecter:(RCTPromiseRejectBlock)reject) {
++    NSDictionary *request = @{
++        @"@type": @"addChatToList",
++        @"chat_id": @((long long)chatId),
++        @"chat_list": [self chatListForType:listType]
++    };
++    [self sendTdLibRequest:request resolve:^(id result) {
++        resolve(@"Chat list updated");
++    } reject:reject];
++}
++
+ RCT_EXPORT_METHOD(loadChats:(int)limit
+                   resolve:(RCTPromiseResolveBlock)resolve
+                   rejecter:(RCTPromiseRejectBlock)reject) {

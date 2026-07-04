@@ -1,5 +1,5 @@
 /**
- * Chats list — Telegram-styled, paginated, searchable.
+ * Chats list — main + archive folders (TDLib chatListMain / chatListArchive).
  */
 
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
@@ -17,17 +17,19 @@ import {
 import TdLib from 'react-native-tdlib';
 import ChatAvatar from '../components/ChatAvatar';
 import {colors, formatTime} from '../theme';
+import {
+  archiveChat,
+  ChatListKind,
+  ChatSummary,
+  getChatsInList,
+  loadChatsInList,
+  sortChatsByOrder,
+  totalUnread,
+  unarchiveChat,
+} from '../tdlib/chatLists';
 import {safeJsonParse, tdEmitter} from '../tdlib';
 
-export interface ChatSummary {
-  id: number;
-  title: string;
-  unread_count?: number;
-  last_message?: any;
-  photo?: any;
-  type?: any;
-  positions?: any[];
-}
+export type {ChatSummary};
 
 interface Props {
   onOpenChat: (chat: ChatSummary) => void;
@@ -37,7 +39,9 @@ const PAGE_SIZE = 25;
 const REFRESH_DEBOUNCE_MS = 400;
 
 const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
+  const [listView, setListView] = useState<ChatListKind>('main');
   const [chats, setChats] = useState<ChatSummary[]>([]);
+  const [archiveChats, setArchiveChats] = useState<ChatSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -45,78 +49,135 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<ChatSummary[] | null>(null);
+  const [searchResults, setSearchResults] = useState<ChatSummary[] | null>(
+    null,
+  );
 
   const loadedCountRef = useRef(0);
   const inFlightRef = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listViewRef = useRef<ChatListKind>('main');
+
+  useEffect(() => {
+    listViewRef.current = listView;
+  }, [listView]);
+
+  const refreshArchivePreview = useCallback(async () => {
+    try {
+      await loadChatsInList('archive', PAGE_SIZE).catch(() => 'end');
+      const list = await getChatsInList('archive', PAGE_SIZE);
+      setArchiveChats(list);
+    } catch {
+      setArchiveChats([]);
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
-    if (inFlightRef.current) return;
+    if (inFlightRef.current) {
+      return;
+    }
     inFlightRef.current = true;
+    const activeList = listViewRef.current;
     setLoading(prev => prev || loadedCountRef.current === 0);
     try {
       const target = Math.max(PAGE_SIZE, loadedCountRef.current);
       if (loadedCountRef.current < target) {
-        const r = await TdLib.loadChats(target - loadedCountRef.current).catch(
-          () => null,
-        );
-        if (r === 'No more chats to load') setHasMore(false);
+        const r = await loadChatsInList(
+          activeList,
+          target - loadedCountRef.current,
+        ).catch(() => 'end' as const);
+        if (r === 'end') {
+          setHasMore(false);
+        }
       }
-      const raw = await TdLib.getChats(target);
-      const list = safeJsonParse<ChatSummary[]>(raw) ?? [];
+      const list = await getChatsInList(activeList, target);
       loadedCountRef.current = list.length;
       setChats(list);
       setError(null);
+      if (activeList === 'main') {
+        await refreshArchivePreview();
+      }
     } catch (e: any) {
       setError(e?.message ?? String(e));
     } finally {
       setLoading(false);
       inFlightRef.current = false;
     }
-  }, []);
+  }, [refreshArchivePreview]);
 
   const scheduleRefresh = useCallback(() => {
-    if (debounceRef.current) return;
+    if (debounceRef.current) {
+      return;
+    }
     debounceRef.current = setTimeout(() => {
       debounceRef.current = null;
       refresh();
+      if (listViewRef.current === 'main') {
+        refreshArchivePreview();
+      }
     }, REFRESH_DEBOUNCE_MS);
-  }, [refresh]);
+  }, [refresh, refreshArchivePreview]);
 
   const loadMore = useCallback(async () => {
-    if (inFlightRef.current || loadingMore || !hasMore) return;
+    if (inFlightRef.current || loadingMore || !hasMore) {
+      return;
+    }
     inFlightRef.current = true;
     setLoadingMore(true);
+    const activeList = listViewRef.current;
     try {
-      const r = await TdLib.loadChats(PAGE_SIZE).catch(() => null);
-      if (r === 'No more chats to load') {
+      const r = await loadChatsInList(activeList, PAGE_SIZE).catch(
+        () => 'end' as const,
+      );
+      if (r === 'end') {
         setHasMore(false);
       }
       const next = loadedCountRef.current + PAGE_SIZE;
-      const raw = await TdLib.getChats(next);
-      const list = safeJsonParse<ChatSummary[]>(raw) ?? [];
+      const list = await getChatsInList(activeList, next);
       if (list.length <= loadedCountRef.current) {
         setHasMore(false);
       }
       loadedCountRef.current = list.length;
       setChats(list);
     } catch {
-      // swallow — user can pull-to-refresh
+      // swallow
     } finally {
       setLoadingMore(false);
       inFlightRef.current = false;
     }
   }, [hasMore, loadingMore]);
 
+  const openArchive = useCallback(() => {
+    loadedCountRef.current = 0;
+    setHasMore(true);
+    setChats([]);
+    setListView('archive');
+  }, []);
+
+  const backToMain = useCallback(() => {
+    loadedCountRef.current = 0;
+    setHasMore(true);
+    setChats([]);
+    setListView('main');
+  }, []);
+
   useEffect(() => {
+    loadedCountRef.current = 0;
+    setHasMore(true);
+    setChats([]);
     refresh();
+  }, [listView, refresh]);
+
+  useEffect(() => {
     return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -130,18 +191,21 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
       'updateNewChat',
     ]);
     const sub = tdEmitter.addListener('tdlib-update', event => {
-      if (TYPES.has(event?.type)) scheduleRefresh();
+      if (TYPES.has(event?.type)) {
+        scheduleRefresh();
+      }
     });
     return () => sub.remove();
   }, [scheduleRefresh]);
 
-  // Search
   useEffect(() => {
     if (!searchOpen) {
       setSearchResults(null);
       return;
     }
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+    }
     const q = query.trim();
     if (!q) {
       setSearchResults(null);
@@ -157,28 +221,28 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
       }
     }, 250);
     return () => {
-      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+      }
     };
   }, [query, searchOpen]);
 
-  const sortedChats = useMemo(() => {
-    return [...chats].sort((a, b) => {
-      const ao = Number(a.positions?.[0]?.order ?? 0);
-      const bo = Number(b.positions?.[0]?.order ?? 0);
-      return bo - ao;
-    });
-  }, [chats]);
+  const sortedChats = useMemo(
+    () => sortChatsByOrder(chats, listView),
+    [chats, listView],
+  );
 
   const displayed = searchResults ?? sortedChats;
+  const archiveUnread = useMemo(() => totalUnread(archiveChats), [archiveChats]);
 
   const onLogout = useCallback(() => {
     Alert.alert(
-      'Log out',
-      'Are you sure you want to log out? All local data will be removed.',
+      'Выйти',
+      'Выйти из аккаунта? Локальные данные будут удалены.',
       [
-        {text: 'Cancel', style: 'cancel'},
+        {text: 'Отмена', style: 'cancel'},
         {
-          text: 'Log out',
+          text: 'Выйти',
           style: 'destructive',
           onPress: () => {
             TdLib.logout().catch(() => {});
@@ -188,20 +252,49 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
     );
   }, []);
 
+  const onChatLongPress = useCallback(
+    (chat: ChatSummary) => {
+      const isArchive = listView === 'archive';
+      Alert.alert(chat.title || 'Чат', undefined, [
+        {
+          text: isArchive ? 'Вернуть из архива' : 'В архив',
+          onPress: async () => {
+            try {
+              if (isArchive) {
+                await unarchiveChat(chat.id);
+              } else {
+                await archiveChat(chat.id);
+              }
+              scheduleRefresh();
+            } catch (e: any) {
+              Alert.alert('Ошибка', e?.message ?? String(e));
+            }
+          },
+        },
+        {text: 'Отмена', style: 'cancel'},
+      ]);
+    },
+    [listView, scheduleRefresh],
+  );
+
   const renderItem = ({item}: {item: ChatSummary}) => {
     const preview = extractPreview(item.last_message);
-    const time = item.last_message?.date ? formatTime(item.last_message.date) : '';
+    const time = item.last_message?.date
+      ? formatTime(item.last_message.date)
+      : '';
     const unread = item.unread_count ?? 0;
     return (
       <TouchableOpacity
         onPress={() => onOpenChat(item)}
+        onLongPress={() => onChatLongPress(item)}
+        delayLongPress={350}
         activeOpacity={0.6}
         style={styles.row}>
         <ChatAvatar id={item.id} title={item.title} photo={item.photo} size={52} />
         <View style={styles.body}>
           <View style={styles.rowTop}>
             <Text style={styles.title} numberOfLines={1}>
-              {item.title || 'Untitled'}
+              {item.title || 'Без названия'}
             </Text>
             <Text style={styles.time}>{time}</Text>
           </View>
@@ -222,6 +315,37 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
     );
   };
 
+  const archiveFolder = listView === 'main' && archiveChats.length > 0 && (
+    <TouchableOpacity
+      onPress={openArchive}
+      activeOpacity={0.6}
+      style={styles.archiveRow}>
+      <View style={styles.archiveIcon}>
+        <Text style={styles.archiveIconText}>📁</Text>
+      </View>
+      <View style={styles.body}>
+        <View style={styles.rowTop}>
+          <Text style={styles.archiveTitle}>Архив</Text>
+          {archiveUnread > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>
+                {archiveUnread > 99 ? '99+' : archiveUnread}
+              </Text>
+            </View>
+          )}
+        </View>
+        <Text style={styles.archiveSubtitle}>
+          {archiveChats.length}{' '}
+          {archiveChats.length === 1
+            ? 'чат'
+            : archiveChats.length < 5
+            ? 'чата'
+            : 'чатов'}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -230,7 +354,7 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder="Search chats…"
+              placeholder="Поиск…"
               placeholderTextColor={colors.textTertiary}
               style={styles.searchInput}
               autoFocus
@@ -241,24 +365,33 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
                 setQuery('');
               }}
               style={styles.searchCancel}>
-              <Text style={styles.searchCancelText}>Cancel</Text>
+              <Text style={styles.searchCancelText}>Отмена</Text>
             </TouchableOpacity>
           </View>
         ) : (
           <>
-            <Text style={styles.headerTitle}>Chats</Text>
-            <View style={styles.headerActions}>
-              <TouchableOpacity
-                onPress={() => setSearchOpen(true)}
-                style={styles.headerAction}
-                hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
-                <Text style={styles.headerActionText}>Search</Text>
+            {listView === 'archive' ? (
+              <TouchableOpacity onPress={backToMain} style={styles.backBtn}>
+                <Text style={styles.backText}>‹ Назад</Text>
               </TouchableOpacity>
+            ) : null}
+            <Text style={styles.headerTitle}>
+              {listView === 'archive' ? 'Архив' : 'Чаты'}
+            </Text>
+            <View style={styles.headerActions}>
+              {listView === 'main' && (
+                <TouchableOpacity
+                  onPress={() => setSearchOpen(true)}
+                  style={styles.headerAction}
+                  hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+                  <Text style={styles.headerActionText}>Поиск</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 onPress={onLogout}
                 style={styles.headerAction}
                 hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
-                <Text style={styles.headerActionText}>Log out</Text>
+                <Text style={styles.headerActionText}>Выйти</Text>
               </TouchableOpacity>
             </View>
           </>
@@ -275,6 +408,14 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
           keyExtractor={item => String(item.id)}
           renderItem={renderItem}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
+          ListHeaderComponent={
+            searchResults ? null : (
+              <>
+                {archiveFolder}
+                {archiveFolder ? <View style={styles.separator} /> : null}
+              </>
+            )
+          }
           initialNumToRender={15}
           windowSize={5}
           removeClippedSubviews
@@ -295,7 +436,7 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
                 <ActivityIndicator color={colors.primary} />
               </View>
             ) : !searchResults && !hasMore && chats.length > 0 ? (
-              <Text style={styles.footerEnd}>· end ·</Text>
+              <Text style={styles.footerEnd}>· конец ·</Text>
             ) : null
           }
           ListEmptyComponent={
@@ -303,9 +444,11 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
               <Text style={styles.emptyText}>
                 {searchResults
                   ? query.trim()
-                    ? 'Nothing found'
-                    : 'Type to search'
-                  : error ?? 'No chats yet. Pull to refresh.'}
+                    ? 'Ничего не найдено'
+                    : 'Введите запрос'
+                  : listView === 'archive'
+                  ? error ?? 'Архив пуст'
+                  : error ?? 'Нет чатов. Потяните вниз для обновления.'}
               </Text>
             </View>
           }
@@ -316,45 +459,41 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
 };
 
 function extractPreview(message: any): string {
-  if (!message) return '';
+  if (!message) {
+    return '';
+  }
   const c = message.content;
-  if (!c) return '';
+  if (!c) {
+    return '';
+  }
   const type = c['@type'];
   switch (type) {
     case 'messageText':
       return c.text?.text ?? '';
     case 'messagePhoto':
-      return '📷 Photo';
+      return '📷 Фото';
     case 'messageVideo':
-      return '🎥 Video';
+      return '🎥 Видео';
     case 'messageVideoNote':
-      return '🟢 Video message';
+      return '🟢 Кружок';
     case 'messageVoiceNote':
-      return '🎤 Voice message';
+      return '🎤 Голосовое';
     case 'messageSticker':
-      return `${c.sticker?.emoji ?? ''} Sticker`;
+      return `${c.sticker?.emoji ?? ''} Стикер`;
     case 'messageDocument':
-      return `📎 ${c.document?.file_name ?? c.document?.fileName ?? 'Document'}`;
+      return `📎 ${c.document?.file_name ?? c.document?.fileName ?? 'Файл'}`;
     case 'messageAnimation':
       return '🎞️ GIF';
     case 'messageAudio':
-      return `🎵 ${c.audio?.title ?? 'Audio'}`;
+      return `🎵 ${c.audio?.title ?? 'Аудио'}`;
     case 'messageLocation':
-      return '📍 Location';
+      return '📍 Локация';
     case 'messageContact':
-      return '👤 Contact';
+      return '👤 Контакт';
     case 'messagePoll':
-      return `📊 ${c.poll?.question?.text ?? 'Poll'}`;
+      return `📊 ${c.poll?.question?.text ?? 'Опрос'}`;
     case 'messageCall':
-      return '☎️ Call';
-    case 'messageChatAddMembers':
-      return 'joined the chat';
-    case 'messageChatDeleteMember':
-      return 'left the chat';
-    case 'messagePinMessage':
-      return 'pinned a message';
-    case 'messageUnsupported':
-      return '[unsupported]';
+      return '☎️ Звонок';
     default:
       return type ? type.replace(/^message/, '') : '';
   }
@@ -372,7 +511,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  headerTitle: {fontSize: 24, fontWeight: '700', color: colors.textPrimary},
+  headerTitle: {
+    flex: 1,
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  backBtn: {marginRight: 8, paddingVertical: 4},
+  backText: {color: colors.primary, fontSize: 17, fontWeight: '500'},
   headerActions: {flexDirection: 'row', alignItems: 'center'},
   headerAction: {paddingHorizontal: 8, paddingVertical: 6, marginLeft: 4},
   headerActionText: {color: colors.primary, fontSize: 15, fontWeight: '500'},
@@ -391,6 +537,29 @@ const styles = StyleSheet.create({
   searchCancel: {paddingHorizontal: 10, paddingVertical: 8},
   searchCancelText: {color: colors.primary, fontSize: 14, fontWeight: '600'},
   center: {flex: 1, alignItems: 'center', justifyContent: 'center'},
+  archiveRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+  },
+  archiveIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.divider,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  archiveIconText: {fontSize: 24},
+  archiveTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  archiveSubtitle: {fontSize: 14, color: colors.textSecondary, marginTop: 2},
   row: {
     flexDirection: 'row',
     paddingHorizontal: 14,
