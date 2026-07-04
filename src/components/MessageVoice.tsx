@@ -1,9 +1,23 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {Platform, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
-import AudioRecorderPlayer from 'react-native-audio-recorder-player';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import TdLib from 'react-native-tdlib';
+import {
+  getActiveVoiceMessageId,
+  playVoiceMessage,
+  seekVoicePlayback,
+  stopVoicePlayback,
+  subscribeVoicePlayback,
+} from '../services/voicePlayer';
 import {useTheme} from '../theme';
 import {useTdUpdate} from '../tdlib';
+import {decodeVoiceWaveform, formatVoiceDuration} from '../utils/voiceWaveform';
 
 interface TdFile {
   id: number;
@@ -11,44 +25,104 @@ interface TdFile {
     path?: string;
     is_downloading_completed?: boolean;
     can_be_downloaded?: boolean;
+    is_downloading_active?: boolean;
   };
 }
 
 interface Props {
+  messageId: number;
   voiceNote: TdFile;
   duration?: number;
+  waveform?: unknown;
+  isOwn?: boolean;
 }
 
-const player = new AudioRecorderPlayer();
-
-function filePath(file: TdFile | undefined): string | undefined {
+function playbackPath(file: TdFile | undefined): string | undefined {
   const p = file?.local?.path;
   if (!p || !file?.local?.is_downloading_completed) {
     return undefined;
   }
-  return Platform.OS === 'android' && !p.startsWith('file://') ? `file://${p}` : p;
+  if (p.startsWith('file://') || p.startsWith('http')) {
+    return p;
+  }
+  return Platform.OS === 'android' ? `file://${p}` : p;
 }
 
-function formatDuration(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-const MessageVoice: React.FC<Props> = ({voiceNote, duration = 0}) => {
+const MessageVoice: React.FC<Props> = ({
+  messageId,
+  voiceNote,
+  duration = 0,
+  waveform,
+  isOwn = false,
+}) => {
   const {theme} = useTheme();
   const fileId = voiceNote?.id;
-  const [path, setPath] = useState<string | undefined>(filePath(voiceNote));
+  const [path, setPath] = useState<string | undefined>(playbackPath(voiceNote));
+  const [downloading, setDownloading] = useState(
+    !!fileId && !voiceNote?.local?.is_downloading_completed,
+  );
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
-  const listenerRef = useRef<any>(null);
+  const [liveDuration, setLiveDuration] = useState(duration);
+
+  const samples = useMemo(() => decodeVoiceWaveform(waveform), [waveform]);
+  const total = Math.max(liveDuration || duration || 0, 1);
+  const progress = Math.min(position / total, 1);
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        row: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          minWidth: 210,
+          maxWidth: 260,
+          paddingVertical: 4,
+        },
+        playBtn: {
+          width: 40,
+          height: 40,
+          borderRadius: 20,
+          alignItems: 'center',
+          justifyContent: 'center',
+          marginRight: 10,
+          backgroundColor: isOwn ? theme.primary : theme.textPrimary,
+        },
+        playIcon: {color: theme.textOnPrimary, fontSize: 16, marginLeft: 2},
+        body: {flex: 1},
+        waveform: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          height: 28,
+          marginBottom: 4,
+        },
+        bar: {
+          width: 3,
+          borderRadius: 2,
+          marginHorizontal: 1,
+        },
+        footer: {
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        },
+        time: {fontSize: 11, color: theme.textSecondary},
+        hint: {fontSize: 10, color: theme.textTertiary},
+      }),
+    [theme, isOwn],
+  );
 
   useEffect(() => {
-    setPath(filePath(voiceNote));
+    setPath(playbackPath(voiceNote));
+    setDownloading(!!fileId && !voiceNote?.local?.is_downloading_completed);
+  }, [fileId, voiceNote]);
+
+  useEffect(() => {
     if (!fileId) {
       return;
     }
     if (voiceNote?.local?.is_downloading_completed) {
+      setDownloading(false);
       return;
     }
     if (voiceNote?.local?.can_be_downloaded === false) {
@@ -57,7 +131,7 @@ const MessageVoice: React.FC<Props> = ({voiceNote, duration = 0}) => {
     TdLib.td_json_client_send({
       '@type': 'downloadFile',
       file_id: fileId,
-      priority: 1,
+      priority: 2,
       offset: 0,
       limit: 0,
       synchronous: false,
@@ -69,87 +143,120 @@ const MessageVoice: React.FC<Props> = ({voiceNote, duration = 0}) => {
     if (!file || file.id !== fileId) {
       return;
     }
-    const p = filePath(file);
+    const p = playbackPath(file);
     if (p) {
       setPath(p);
+      setDownloading(false);
+    } else if (file.local?.is_downloading_active) {
+      setDownloading(true);
     }
   });
 
   useEffect(() => {
+    return subscribeVoicePlayback(activeId => {
+      const isActive = activeId === messageId;
+      setPlaying(isActive);
+      if (!isActive) {
+        setPosition(0);
+      }
+    });
+  }, [messageId]);
+
+  useEffect(() => {
     return () => {
-      player.stopPlayer().catch(() => {});
-      player.removePlayBackListener();
+      if (getActiveVoiceMessageId() === messageId) {
+        stopVoicePlayback().catch(() => {});
+      }
     };
-  }, []);
+  }, [messageId]);
 
   const togglePlay = useCallback(async () => {
     if (!path) {
       return;
     }
     if (playing) {
-      await player.stopPlayer();
-      player.removePlayBackListener();
-      setPlaying(false);
-      setPosition(0);
+      await stopVoicePlayback();
       return;
     }
-    await player.startPlayer(path);
-    setPlaying(true);
-    listenerRef.current = player.addPlayBackListener(meta => {
-      setPosition(Math.floor(meta.currentPosition / 1000));
-      if (meta.currentPosition >= meta.duration) {
-        setPlaying(false);
-        setPosition(0);
-        player.stopPlayer().catch(() => {});
-        player.removePlayBackListener();
-      }
-    });
-  }, [path, playing]);
+    try {
+      await playVoiceMessage(messageId, path, (pos, dur) => {
+        setPosition(pos);
+        if (dur > 0) {
+          setLiveDuration(Math.round(dur));
+        }
+      });
+    } catch {
+      setPlaying(false);
+    }
+  }, [path, playing, messageId]);
 
-  const total = duration || Math.max(position, 1);
-  const progress = total > 0 ? Math.min(position / total, 1) : 0;
+  const onSeek = useCallback(
+    async (event: {nativeEvent: {locationX: number}}) => {
+      if (!path || total <= 0) {
+        return;
+      }
+      const width = Math.max(samples.length * 5, 160);
+      const ratio = Math.max(0, Math.min(1, event.nativeEvent.locationX / width));
+      const target = ratio * total;
+      setPosition(target);
+      if (playing) {
+        await seekVoicePlayback(target);
+      }
+    },
+    [path, total, playing, samples.length],
+  );
+
+  const playedColor = isOwn ? theme.primaryDark : theme.primary;
+  const unplayedColor = theme.mode === 'dark' ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.14)';
 
   return (
     <View style={styles.row}>
-      <TouchableOpacity
+      <Pressable
         onPress={togglePlay}
-        disabled={!path}
-        style={[styles.playBtn, {backgroundColor: theme.primary}]}
-        activeOpacity={0.8}>
-        <Text style={styles.playIcon}>{playing ? '⏸' : '▶'}</Text>
-      </TouchableOpacity>
+        disabled={!path && !downloading}
+        style={({pressed}) => [
+          styles.playBtn,
+          pressed && {opacity: 0.85},
+          !path && {opacity: 0.55},
+        ]}>
+        {downloading && !path ? (
+          <ActivityIndicator color={theme.textOnPrimary} size="small" />
+        ) : (
+          <Text style={styles.playIcon}>{playing ? '⏸' : '▶'}</Text>
+        )}
+      </Pressable>
+
       <View style={styles.body}>
-        <View style={[styles.track, {backgroundColor: theme.divider}]}>
-          <View
-            style={[
-              styles.fill,
-              {backgroundColor: theme.primary, width: `${progress * 100}%`},
-            ]}
-          />
+        <Pressable onPress={onSeek} style={styles.waveform}>
+          {samples.map((amp, i) => {
+            const barPos = (i + 0.5) / samples.length;
+            const isPlayed = barPos <= progress;
+            return (
+              <View
+                key={i}
+                style={[
+                  styles.bar,
+                  {
+                    height: 4 + amp * 22,
+                    backgroundColor: isPlayed ? playedColor : unplayedColor,
+                    opacity: isPlayed ? 1 : 0.85,
+                  },
+                ]}
+              />
+            );
+          })}
+        </Pressable>
+        <View style={styles.footer}>
+          <Text style={styles.time}>
+            {formatVoiceDuration(playing ? position : total)}
+          </Text>
+          {!path && downloading ? (
+            <Text style={styles.hint}>загрузка…</Text>
+          ) : null}
         </View>
-        <Text style={[styles.time, {color: theme.textSecondary}]}>
-          {formatDuration(playing ? position : total)}
-        </Text>
       </View>
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  row: {flexDirection: 'row', alignItems: 'center', minWidth: 180, paddingVertical: 2},
-  playBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  playIcon: {color: '#fff', fontSize: 14, marginLeft: 1},
-  body: {flex: 1},
-  track: {height: 4, borderRadius: 2, overflow: 'hidden', marginBottom: 4},
-  fill: {height: 4, borderRadius: 2},
-  time: {fontSize: 11},
-});
 
 export default MessageVoice;

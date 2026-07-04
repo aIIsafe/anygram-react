@@ -622,8 +622,11 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
             />
           ) : isVoice ? (
             <MessageVoice
-              voiceNote={item.content.voice_note}
+              messageId={item.id}
+              voiceNote={item.content.voice_note?.voice ?? item.content.voice_note}
               duration={item.content.voice_note?.duration}
+              waveform={item.content.voice_note?.waveform}
+              isOwn={own}
             />
           ) : (
             renderMessageBody(item.content, styles.bubbleText, theme)
