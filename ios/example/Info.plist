@@ -37,6 +37,14 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>AnyGram нужен доступ к камере для отправки фото в чатах.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>AnyGram нужен доступ к микрофону для записи голосовых сообщений.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>AnyGram нужен доступ к галерее для отправки фото в чатах.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>AnyGram может сохранять фото в галерею.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string></string>
 	<key>UILaunchStoryboardName</key>

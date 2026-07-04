@@ -8,8 +8,6 @@ import {
   Alert,
   Dimensions,
   FlatList,
-  Keyboard,
-  KeyboardAvoidingView,
   Linking,
   Modal,
   Platform,
@@ -20,15 +18,24 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import AudioRecorderPlayer from 'react-native-audio-recorder-player';
+import {
+  launchCamera,
+  launchImageLibrary,
+} from 'react-native-image-picker';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import TdLib from 'react-native-tdlib';
 import ChatAvatar from '../components/ChatAvatar';
 import ChatComposer from '../components/ChatComposer';
 import LiquidGlass from '../components/LiquidGlass';
 import MessagePhoto from '../components/MessagePhoto';
+import MessageVoice from '../components/MessageVoice';
 import ThemeToggle from '../components/ThemeToggle';
 import TypingDots from '../components/TypingDots';
+import {useKeyboardHeight} from '../hooks/useKeyboardHeight';
 import {AppTheme, formatTime, useTheme} from '../theme';
 import {safeJsonParse, useTdUpdate} from '../tdlib';
+import {sendPhotoMessage, sendVoiceMessage} from '../tdlib/messages';
 import {ChatSummary} from './ChatsScreen';
 
 interface Props {
@@ -104,9 +111,12 @@ const summarizeEntities = (raw: string): string[] => {
 };
 const VIEW_BATCH_MS = 500;
 const TYPING_TIMEOUT_MS = 5000;
+const audioRecorder = new AudioRecorderPlayer();
 
 const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
   const {theme} = useTheme();
+  const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
   const styles = useMemo(() => createChatStyles(theme), [theme]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
@@ -121,7 +131,9 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
   const [info, setInfo] = useState<ChatInfo | null>(null);
 
   const [typingUserIds, setTypingUserIds] = useState<number[]>([]);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recordingSec, setRecordingSec] = useState(0);
+  const [composerHeight, setComposerHeight] = useState(64);
   const [lastReadOutboxId, setLastReadOutboxId] = useState<number>(
     (chat as any).last_read_outbox_message_id ?? 0,
   );
@@ -135,8 +147,14 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
   const typingTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const entitiesTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const entitiesReqIdRef = useRef(0);
+  const recordStartedAtRef = useRef(0);
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordingRef = useRef(false);
 
   const width = Dimensions.get('window').width;
+  const overlayExtra =
+    (replyingTo ? 46 : 0) + (entityChips.length > 0 ? 34 : 0);
+  const listBottomPad = composerHeight + overlayExtra + 12;
 
   const flushViewed = useCallback(() => {
     const ids = Array.from(pendingViewRef.current).filter(
@@ -202,13 +220,18 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
   }, [chat.id, loadHistory]);
 
   useEffect(() => {
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSub = Keyboard.addListener(showEvt, () => setKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(hideEvt, () => setKeyboardVisible(false));
+    if (keyboardHeight > 0) {
+      listRef.current?.scrollToOffset({offset: 0, animated: true});
+    }
+  }, [keyboardHeight]);
+
+  useEffect(() => {
     return () => {
-      showSub.remove();
-      hideSub.remove();
+      if (recordTimerRef.current) {
+        clearInterval(recordTimerRef.current);
+      }
+      audioRecorder.stopRecorder().catch(() => {});
+      audioRecorder.removeRecordBackListener();
     };
   }, []);
 
@@ -300,7 +323,117 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
     }
   }, [chat.id, text, replyingTo]);
 
-  // Fire a typing action as the user types, throttled to one per 3s.
+  const sendMedia = useCallback(
+    async (sendFn: (replyId?: number) => Promise<void>) => {
+      const replyId = replyingTo?.id;
+      setReplyingTo(null);
+      setSending(true);
+      try {
+        await sendFn(replyId);
+        setEntityChips([]);
+      } catch (e: any) {
+        if (replyId != null) {
+          const target = messages.find(m => m.id === replyId);
+          if (target) {
+            setReplyingTo(target);
+          }
+        }
+        Alert.alert('Ошибка', e?.message ?? 'Не удалось отправить');
+      } finally {
+        setSending(false);
+      }
+    },
+    [replyingTo?.id, messages],
+  );
+
+  const onAttach = useCallback(() => {
+    Alert.alert('Отправить фото', undefined, [
+      {
+        text: 'Галерея',
+        onPress: () => {
+          launchImageLibrary({mediaType: 'photo', quality: 0.8, selectionLimit: 1})
+            .then(result => {
+              const uri = result.assets?.[0]?.uri;
+              if (result.didCancel || !uri) {
+                return;
+              }
+              sendMedia(replyId =>
+                sendPhotoMessage(chat.id, uri, replyId),
+              );
+            })
+            .catch(() => {});
+        },
+      },
+      {
+        text: 'Камера',
+        onPress: () => {
+          launchCamera({mediaType: 'photo', quality: 0.8, saveToPhotos: false})
+            .then(result => {
+              const uri = result.assets?.[0]?.uri;
+              if (result.didCancel || !uri) {
+                return;
+              }
+              sendMedia(replyId =>
+                sendPhotoMessage(chat.id, uri, replyId),
+              );
+            })
+            .catch(() => {});
+        },
+      },
+      {text: 'Отмена', style: 'cancel'},
+    ]);
+  }, [chat.id, replyingTo?.id, sendMedia]);
+
+  const onRecordStart = useCallback(async () => {
+    if (recordingRef.current || sending) {
+      return;
+    }
+    try {
+      recordingRef.current = true;
+      setRecording(true);
+      setRecordingSec(0);
+      recordStartedAtRef.current = Date.now();
+      await audioRecorder.startRecorder();
+      recordTimerRef.current = setInterval(() => {
+        setRecordingSec(
+          Math.max(1, Math.round((Date.now() - recordStartedAtRef.current) / 1000)),
+        );
+      }, 500);
+    } catch (e: any) {
+      recordingRef.current = false;
+      setRecording(false);
+      Alert.alert('Микрофон', e?.message ?? 'Не удалось начать запись');
+    }
+  }, [sending]);
+
+  const onRecordStop = useCallback(async () => {
+    if (!recordingRef.current) {
+      return;
+    }
+    recordingRef.current = false;
+    setRecording(false);
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    try {
+      const uri = await audioRecorder.stopRecorder();
+      audioRecorder.removeRecordBackListener();
+      const duration = (Date.now() - recordStartedAtRef.current) / 1000;
+      if (!uri || duration < 0.6) {
+        return;
+      }
+      await sendMedia(replyId =>
+        sendVoiceMessage(chat.id, uri, duration, replyId),
+      );
+    } catch (e: any) {
+      Alert.alert('Голосовое', e?.message ?? 'Не удалось отправить');
+    } finally {
+      setRecordingSec(0);
+    }
+  }, [chat.id, sendMedia]);
+
+  // Fire a typing action
   const typingSentRef = useRef<number>(0);
   const onChangeText = useCallback(
     (t: string) => {
@@ -429,6 +562,8 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
     const own = meId != null && item.sender_id?.user_id === meId;
     const reactions = item.interaction_info?.reactions?.reactions ?? [];
     const isPhoto = item.content?.['@type'] === 'messagePhoto';
+    const isVoice = item.content?.['@type'] === 'messageVoiceNote';
+    const isMedia = isPhoto || isVoice;
     const replyToId =
       item.reply_to?.['@type'] === 'messageReplyToMessage'
         ? item.reply_to.message_id
@@ -444,7 +579,7 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
           style={[
             styles.bubble,
             own ? styles.bubbleOwn : styles.bubbleOther,
-            isPhoto && styles.bubblePhoto,
+            isMedia && styles.bubblePhoto,
           ]}>
           {replyToId ? (
             <View style={styles.replyQuote}>
@@ -452,7 +587,7 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
               <Text style={styles.replyText} numberOfLines={1}>
                 {replyTarget
                   ? renderContent(replyTarget.content)
-                  : `reply to #${replyToId}`}
+                  : `ответ на #${replyToId}`}
               </Text>
             </View>
           ) : null}
@@ -462,6 +597,11 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
               photo={item.content.photo}
               caption={item.content.caption?.text}
               maxWidth={width * 0.68}
+            />
+          ) : isVoice ? (
+            <MessageVoice
+              voiceNote={item.content.voice_note}
+              duration={item.content.voice_note?.duration}
             />
           ) : (
             renderMessageBody(item.content, styles.bubbleText, theme)
@@ -499,10 +639,7 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}>
+    <View style={styles.container}>
       <LiquidGlass intensity="soft" compact native style={styles.headerGlass}>
         <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backBtn}>
@@ -546,7 +683,10 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
             renderItem={renderItem}
             extraData={lastReadOutboxId}
             inverted
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[
+              styles.listContent,
+              {paddingTop: listBottomPad},
+            ]}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             onEndReached={loadOlder}
@@ -562,8 +702,26 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
         )}
       </View>
 
+      {entityChips.length > 0 ? (
+        <View
+          style={[
+            styles.entitiesBar,
+            {bottom: keyboardHeight + composerHeight},
+          ]}>
+          {entityChips.map(chip => (
+            <View key={chip} style={styles.entityChip}>
+              <Text style={styles.entityChipText}>{chip}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
       {replyingTo ? (
-        <View style={styles.replyingBar}>
+        <View
+          style={[
+            styles.replyingBar,
+            {bottom: keyboardHeight + composerHeight},
+          ]}>
           <View style={styles.replyingBar_accent} />
           <View style={{flex: 1}}>
             <Text style={styles.replyingBar_label}>Ответ на</Text>
@@ -579,24 +737,23 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
         </View>
       ) : null}
 
-      {entityChips.length > 0 ? (
-        <View style={styles.entitiesBar}>
-          {entityChips.map(chip => (
-            <View key={chip} style={styles.entityChip}>
-              <Text style={styles.entityChipText}>{chip}</Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
-
-      <ChatComposer
-        theme={theme}
-        value={text}
-        onChangeText={onChangeText}
-        onSend={onSend}
-        sending={sending}
-        keyboardVisible={keyboardVisible}
-      />
+      <View
+        style={[styles.composerDock, {bottom: keyboardHeight}]}
+        onLayout={event => setComposerHeight(event.nativeEvent.layout.height)}>
+        <ChatComposer
+          theme={theme}
+          value={text}
+          onChangeText={onChangeText}
+          onSend={onSend}
+          onAttach={onAttach}
+          onRecordStart={onRecordStart}
+          onRecordStop={onRecordStop}
+          sending={sending}
+          recording={recording}
+          recordingSec={recordingSec}
+          bottomInset={keyboardHeight > 0 ? 6 : insets.bottom}
+        />
+      </View>
 
       {/* Action menu (Reply / React) */}
       <Modal
@@ -706,7 +863,7 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
           </Pressable>
         </Pressable>
       </Modal>
-    </KeyboardAvoidingView>
+    </View>
   );
 };
 
@@ -950,6 +1107,13 @@ function createChatStyles(theme: AppTheme) {
   messagesArea: {flex: 1, minHeight: 0},
   list: {flex: 1},
   listContent: {paddingHorizontal: 10, paddingVertical: 10},
+
+  composerDock: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 20,
+  },
   empty: {paddingTop: 80, alignItems: 'center'},
   emptyText: {color: theme.textSecondary, fontSize: 14},
 
@@ -1017,6 +1181,10 @@ function createChatStyles(theme: AppTheme) {
   reactionCountActive: {color: theme.primary},
 
   replyingBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 15,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
@@ -1038,6 +1206,10 @@ function createChatStyles(theme: AppTheme) {
   replyingBar_closeText: {fontSize: 18, color: theme.textSecondary},
 
   entitiesBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 14,
     flexDirection: 'row',
     flexWrap: 'wrap',
     paddingHorizontal: 12,
