@@ -169,7 +169,7 @@ const AuthScreen: React.FC<Props> = ({info}) => {
           <AnimatedLogo />
 
           <Animated.View style={{opacity: fade, width: '100%'}}>
-            <LiquidGlass>
+            <LiquidGlass native>
               <Text style={styles.stepIcon}>{stepIcon(info.state)}</Text>
               <Text style={styles.title}>{titles[info.state] ?? 'Вход'}</Text>
               <Text style={styles.subtitle}>

@@ -19,6 +19,7 @@ import ChatAvatar from '../components/ChatAvatar';
 import LiquidGlass from '../components/LiquidGlass';
 import ThemeToggle from '../components/ThemeToggle';
 import {AppTheme, formatTime, useTheme} from '../theme';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {
   archiveChat,
   ChatListKind,
@@ -43,6 +44,7 @@ const REFRESH_DEBOUNCE_MS = 400;
 
 const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
   const {theme} = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [listView, setListView] = useState<ChatListKind>('main');
   const [chats, setChats] = useState<ChatSummary[]>([]);
@@ -360,7 +362,7 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
 
   return (
     <View style={styles.container}>
-      <LiquidGlass intensity="soft" compact style={styles.headerGlass}>
+      <LiquidGlass intensity="soft" compact native style={styles.headerGlass}>
         <View style={styles.header}>
         {searchOpen ? (
           <View style={styles.searchRow}>
@@ -431,6 +433,7 @@ const ChatsScreen: React.FC<Props> = ({onOpenChat}) => {
               </>
             )
           }
+          contentContainerStyle={{paddingBottom: Math.max(insets.bottom, 8)}}
           initialNumToRender={15}
           windowSize={5}
           removeClippedSubviews

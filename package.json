@@ -11,8 +11,10 @@
     "postinstall": "patch-package"
   },
   "dependencies": {
+    "@react-native-community/blur": "^4.3.2",
     "react": "18.1.0",
     "react-native": "0.70.10",
+    "react-native-safe-area-context": "^4.5.0",
     "react-native-tdlib": "^2.3.0"
   },
   "devDependencies": {

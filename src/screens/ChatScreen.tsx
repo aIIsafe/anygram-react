@@ -8,6 +8,7 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -15,13 +16,13 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   TextStyle,
   TouchableOpacity,
   View,
 } from 'react-native';
 import TdLib from 'react-native-tdlib';
 import ChatAvatar from '../components/ChatAvatar';
+import ChatComposer from '../components/ChatComposer';
 import LiquidGlass from '../components/LiquidGlass';
 import MessagePhoto from '../components/MessagePhoto';
 import ThemeToggle from '../components/ThemeToggle';
@@ -120,6 +121,7 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
   const [info, setInfo] = useState<ChatInfo | null>(null);
 
   const [typingUserIds, setTypingUserIds] = useState<number[]>([]);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [lastReadOutboxId, setLastReadOutboxId] = useState<number>(
     (chat as any).last_read_outbox_message_id ?? 0,
   );
@@ -198,6 +200,17 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
       TdLib.closeChat(chat.id).catch(() => {});
     };
   }, [chat.id, loadHistory]);
+
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvt, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvt, () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   useTdUpdate('updateNewMessage', data => {
     const msg = data?.message as Message | undefined;
@@ -487,9 +500,10 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={styles.container}>
-      <LiquidGlass intensity="soft" compact style={styles.headerGlass}>
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={0}>
+      <LiquidGlass intensity="soft" compact native style={styles.headerGlass}>
         <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.backBtn}>
           <Text style={styles.backText}>‹</Text>
@@ -518,30 +532,35 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
         </View>
       </LiquidGlass>
 
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={theme.primary} />
-        </View>
-      ) : (
-        <FlatList
-          ref={listRef}
-          data={messages}
-          keyExtractor={item => String(item.id)}
-          renderItem={renderItem}
-          extraData={lastReadOutboxId}
-          inverted
-          contentContainerStyle={styles.listContent}
-          onEndReached={loadOlder}
-          onEndReachedThreshold={0.3}
-          initialNumToRender={20}
-          windowSize={7}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>Пока нет сообщений</Text>
-            </View>
-          }
-        />
-      )}
+      <View style={styles.messagesArea}>
+        {loading ? (
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={theme.primary} />
+          </View>
+        ) : (
+          <FlatList
+            ref={listRef}
+            style={styles.list}
+            data={messages}
+            keyExtractor={item => String(item.id)}
+            renderItem={renderItem}
+            extraData={lastReadOutboxId}
+            inverted
+            contentContainerStyle={styles.listContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            onEndReached={loadOlder}
+            onEndReachedThreshold={0.3}
+            initialNumToRender={20}
+            windowSize={7}
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <Text style={styles.emptyText}>Пока нет сообщений</Text>
+              </View>
+            }
+          />
+        )}
+      </View>
 
       {replyingTo ? (
         <View style={styles.replyingBar}>
@@ -570,28 +589,14 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
         </View>
       ) : null}
 
-      <LiquidGlass intensity="soft" compact style={styles.inputGlass}>
-        <View style={styles.inputBar}>
-          <TextInput
-            value={text}
-            onChangeText={onChangeText}
-            placeholder="Сообщение"
-            placeholderTextColor={theme.textTertiary}
-            style={styles.input}
-            multiline
-          />
-          <TouchableOpacity
-            onPress={onSend}
-            disabled={sending || !text.trim()}
-            style={[
-              styles.sendBtn,
-              (sending || !text.trim()) && styles.sendBtnDisabled,
-            ]}
-            activeOpacity={0.8}>
-            <Text style={styles.sendBtnText}>➤</Text>
-          </TouchableOpacity>
-        </View>
-      </LiquidGlass>
+      <ChatComposer
+        theme={theme}
+        value={text}
+        onChangeText={onChangeText}
+        onSend={onSend}
+        sending={sending}
+        keyboardVisible={keyboardVisible}
+      />
 
       {/* Action menu (Reply / React) */}
       <Modal
@@ -600,7 +605,7 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
         animationType="fade"
         onRequestClose={() => setActionOn(null)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setActionOn(null)}>
-          <LiquidGlass intensity="soft" style={styles.actionSheetGlass}>
+            <LiquidGlass intensity="soft" native style={styles.actionSheetGlass}>
             <View style={styles.actionSheet}>
             <TouchableOpacity
               style={styles.actionBtn}
@@ -638,7 +643,7 @@ const ChatScreen: React.FC<Props> = ({chat, meId, onBack}) => {
         animationType="fade"
         onRequestClose={() => setReactingOn(null)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setReactingOn(null)}>
-          <LiquidGlass intensity="soft" style={styles.reactionPickerGlass}>
+          <LiquidGlass intensity="soft" native style={styles.reactionPickerGlass}>
             <View style={styles.reactionPicker}>
             {QUICK_REACTIONS.map(emoji => (
               <TouchableOpacity
@@ -942,6 +947,8 @@ function createChatStyles(theme: AppTheme) {
   headerTypingLabel: {color: theme.primary, marginRight: 6},
 
   center: {flex: 1, alignItems: 'center', justifyContent: 'center'},
+  messagesArea: {flex: 1, minHeight: 0},
+  list: {flex: 1},
   listContent: {paddingHorizontal: 10, paddingVertical: 10},
   empty: {paddingTop: 80, alignItems: 'center'},
   emptyText: {color: theme.textSecondary, fontSize: 14},
@@ -1030,16 +1037,6 @@ function createChatStyles(theme: AppTheme) {
   replyingBar_close: {paddingHorizontal: 8, paddingVertical: 4},
   replyingBar_closeText: {fontSize: 18, color: theme.textSecondary},
 
-  inputGlass: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: theme.glassBorder,
-  },
-  inputBar: {
-    flexDirection: 'row',
-    padding: 10,
-    paddingBottom: 10,
-    alignItems: 'flex-end',
-  },
   entitiesBar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1060,30 +1057,6 @@ function createChatStyles(theme: AppTheme) {
     fontSize: 11,
     color: theme.textSecondary,
   },
-  input: {
-    flex: 1,
-    backgroundColor: theme.mode === 'dark' ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.65)',
-    borderWidth: 1,
-    borderColor: theme.glassBorder,
-    borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
-    fontSize: 15,
-    color: theme.textPrimary,
-    maxHeight: 120,
-    minHeight: 40,
-  },
-  sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: theme.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 8,
-  },
-  sendBtnDisabled: {backgroundColor: theme.divider},
-  sendBtnText: {color: 'white', fontSize: 18, marginLeft: 2},
 
   modalBackdrop: {
     flex: 1,

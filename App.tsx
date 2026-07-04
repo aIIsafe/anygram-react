@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from 'react';
-import {SafeAreaView, StatusBar, StyleSheet, View} from 'react-native';
+import {StatusBar, StyleSheet, View} from 'react-native';
+import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 import TdLib from 'react-native-tdlib';
 import AuthScreen from './src/screens/AuthScreen';
 import ChatsScreen, {ChatSummary} from './src/screens/ChatsScreen';
@@ -54,7 +55,8 @@ const AppShell: React.FC = () => {
 
   return (
     <SafeAreaView
-      style={[styles.safe, {backgroundColor: theme.background}]}>
+      style={[styles.safe, {backgroundColor: theme.background}]}
+      edges={['top', 'left', 'right']}>
       <StatusBar
         barStyle={theme.statusBar}
         backgroundColor={theme.background}
@@ -67,9 +69,11 @@ const AppShell: React.FC = () => {
 };
 
 const App: React.FC = () => (
-  <ThemeProvider>
-    <AppShell />
-  </ThemeProvider>
+  <SafeAreaProvider>
+    <ThemeProvider>
+      <AppShell />
+    </ThemeProvider>
+  </SafeAreaProvider>
 );
 
 const styles = StyleSheet.create({
